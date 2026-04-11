@@ -6,9 +6,19 @@ mean-reversion, cross-asset flow, crypto, options, machine learning,
 and alternative data. Each strategy is a standalone runnable module
 with its own research question and reference backtest result.
 
-> Companion: [`kuant-core`](https://github.com/zwmjj/kuant-core) is the
-> research framework (event-driven backtester, factor library, risk
-> toolkit). This repo is the strategy layer that depends on it.
+## Ecosystem
+
+This is one of **six open-source repositories** that together form a
+complete quant research platform. Total ~55,000 LOC, MIT licensed.
+
+| Repo | Role | LOC |
+|---|---|---|
+| [`alt-data-research`](https://github.com/zwmjj/alt-data-research) ⭐ | SEC NLP + 13F alt-data alpha — **t-stat 2.11, ICIR 0.80** | ~2.5k |
+| [`kuant-research`](https://github.com/zwmjj/kuant-research) | 14 reproducible empirical studies with committed expected outputs | ~3k |
+| [`kuant-core`](https://github.com/zwmjj/kuant-core) | Production quant research library — 28+ factors, walk-forward CV, 5 cost models, US + CN A-share | ~20k |
+| **`kuant-strategies`** (this repo) | 25+ strategies built on kuant-core: momentum, mean-rev, crypto, options, ML, alt-data | ~17k |
+| [`kuant-api`](https://github.com/zwmjj/kuant-api) | FastAPI research backend — 20 routers, Monaco IDE, WebSocket, JWT auth | ~5k |
+| [`kuant-web`](https://github.com/zwmjj/kuant-web) | Next.js 16 + Tailwind + Recharts dashboard — 20 panels | ~7k |
 
 ## Strategy catalogue
 
