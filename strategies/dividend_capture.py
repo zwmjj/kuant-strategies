@@ -1,4 +1,4 @@
-"""股息捕获策略 — 基于Alpaca公司行动数据的股息事件驱动策略"""
+"""Dividend capture strategies — dividend event-driven strategies built on Alpaca corporate action data"""
 import numpy as np
 import pandas as pd
 from datetime import date, timedelta
@@ -13,15 +13,15 @@ from qf.data_alpaca import AlpacaDataLoader
 
 class DividendCaptureStrategy(BaseStrategy):
     """
-    股息捕获策略 — 在除息日前买入，除息日后卖出，赚取股息收入。
+    Dividend capture strategy — buy before the ex-dividend date and sell after it to collect the dividend.
 
-    逻辑:
-        1. 从Alpaca获取即将到来的股息公告
-        2. 除息日前2-5天买入（捕获股息资格）
-        3. 除息日当天或之后卖出
-        4. 过滤条件: 年化股息收益率>1%, 价格>$20(市值代理)
-        5. 按股息收益率加权持仓（收益率越高仓位越大）
-        6. 风险控制: 前20天跌幅超5%的票排除（避免"股息陷阱"）
+    Logic:
+        1. Fetch upcoming dividend announcements from Alpaca
+        2. Buy 2-5 days before the ex-dividend date (to qualify for the dividend)
+        3. Sell on or after the ex-dividend date
+        4. Filters: annualized dividend yield > 1%, price > $20 (market-cap proxy)
+        5. Size positions by dividend yield (higher yield = larger position)
+        6. Risk control: exclude names down more than 5% over the prior 20 days (avoiding "dividend traps")
     """
 
     name = "Dividend Capture"
@@ -178,18 +178,18 @@ class DividendCaptureStrategy(BaseStrategy):
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
         """
-        生成信号DataFrame (date x symbol)。
+        Generate a signal DataFrame (date x symbol).
 
-        基于即将到来的股息事件生成交易信号:
-            - 除息日前2-5天: 正信号（买入）
-            - 除息日当天/之后: 零信号（卖出）
-            - 信号强度按评分加权
+        Builds trading signals from upcoming dividend events:
+            - 2-5 days before the ex-dividend date: positive signal (buy)
+            - on or after the ex-dividend date: zero signal (sell)
+            - signal strength is weighted by score
 
         Parameters:
-            data: 数据字典，可含 'as_of_date' 键指定日期
+            data: data dict, may carry an 'as_of_date' key specifying the date
 
         Returns:
-            DataFrame: index=日期, columns=股票代码, values=信号强度
+            DataFrame: index=date, columns=ticker, values=signal strength
         """
         as_of = data.get('as_of_date', date.today())
         if isinstance(as_of, str):
@@ -247,10 +247,10 @@ class DividendCaptureStrategy(BaseStrategy):
 
     def get_current_targets(self, as_of=None):
         """
-        获取当前推荐买入/卖出的标的（便捷方法）。
+        Get the instruments currently recommended for buying/selling (convenience method).
 
         Returns:
-            dict: {'buy': [...], 'sell': [...]}，每个含 symbol, score, ex_date 等
+            dict: {'buy': [...], 'sell': [...]}, each entry carrying symbol, score, ex_date, etc.
         """
         as_of = as_of or date.today()
         div_df = self._fetch_upcoming_dividends(as_of=as_of)
@@ -287,15 +287,15 @@ class DividendCaptureStrategy(BaseStrategy):
 
 class DividendYieldStrategy(BaseStrategy):
     """
-    股息收益率价值策略 — 基于12个月滚动股息收益率的多空因子。
+    Dividend yield value strategy — a long/short factor on trailing 12-month dividend yield.
 
-    逻辑:
-        - 收集过去12个月所有股息支付
-        - 计算年化股息收益率 = 12个月累计股息 / 当前股价
-        - 按收益率排名: 做多前20%（高收益率），做空后20%（低/无收益率）
-        - 排除"股息陷阱": 收益率>10%的异常值视为数据错误或公司困境
+    Logic:
+        - Collect every dividend paid over the past 12 months
+        - Annualized dividend yield = trailing 12-month dividends / current price
+        - Rank by yield: long the top 20% (high yield), short the bottom 20% (low/no yield)
+        - Exclude "dividend traps": yields > 10% are treated as data errors or companies in distress
 
-    适用于长期价值组合，月度换仓。
+    Suited to long-horizon value portfolios with monthly rebalancing.
     """
 
     name = "Dividend Yield Value"
@@ -392,16 +392,16 @@ class DividendYieldStrategy(BaseStrategy):
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
         """
-        生成基于股息收益率排名的多空信号。
+        Generate long/short signals from the dividend yield ranking.
 
-        做多前20%高收益率股票，做空后20%低/无收益率股票。
-        信号值 = 标准化后的收益率排名分数。
+        Long the top 20% by yield, short the bottom 20% with low or no yield.
+        Signal value = the standardized yield rank score.
 
         Parameters:
-            data: 数据字典，可含 'as_of_date', 'all_symbols' 键
+            data: data dict, may carry 'as_of_date' and 'all_symbols' keys
 
         Returns:
-            DataFrame: index=日期, columns=股票代码, values=信号(-1到+1)
+            DataFrame: index=date, columns=ticker, values=signal (-1 to +1)
         """
         as_of = data.get('as_of_date', date.today())
         if isinstance(as_of, str):
@@ -461,25 +461,25 @@ def run_dividend_backtest(
     strategy_params=None,
 ):
     """
-    股息捕获策略历史回测。
+    Historical backtest of the dividend capture strategy.
 
-    逻辑:
-        1. 按月滚动扫描历史股息公告
-        2. 对每个除息事件模拟: 除息前买入 → 收取股息 → 除息后卖出
-        3. 汇总盈亏、胜率、年化收益率
+    Logic:
+        1. Scan historical dividend announcements month by month
+        2. Simulate each ex-dividend event: buy before the ex-date → collect the dividend → sell after it
+        3. Aggregate P&L, win rate, and annualized return
 
     Parameters:
-        start_date: 回测开始日期
-        end_date: 回测结束日期（默认今天）
-        initial_capital: 初始资金
-        loader: AlpacaDataLoader实例
-        strategy_params: 策略参数字典
+        start_date: backtest start date
+        end_date: backtest end date (defaults to today)
+        initial_capital: starting capital
+        loader: AlpacaDataLoader instance
+        strategy_params: strategy parameter dict
 
     Returns:
         dict: {
-            'trades': DataFrame（每笔交易明细）,
-            'summary': dict（汇总统计）,
-            'equity_curve': Series（资金曲线）
+            'trades': DataFrame (per-trade detail),
+            'summary': dict (aggregate statistics),
+            'equity_curve': Series (equity curve)
         }
     """
     loader = loader or AlpacaDataLoader()

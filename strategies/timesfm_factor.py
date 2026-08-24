@@ -1,20 +1,21 @@
-"""TimesFM 因子策略 — 用基础模型预测生成截面因子信号
+"""TimesFM factor strategy — cross-sectional factor signals from foundation-model forecasts
 
-因子列表:
-    1. timesfm_trend      — 预测收益率截面排名
-    2. timesfm_risk_adj   — 预测收益 / 预测不确定性 (夏普型)
-    3. timesfm_reversal   — 预测方向 vs 近期动量的分歧信号
+Factors:
+    1. timesfm_trend      — cross-sectional rank of the forecast return
+    2. timesfm_risk_adj   — forecast return / forecast uncertainty (Sharpe-like)
+    3. timesfm_reversal   — divergence between the forecast direction and recent momentum
 
-策略列表:
-    1. TimesFMFactorStrategy     — 三因子等权组合
-    2. TimesFMAlphaStrategy      — TimesFM + 传统因子集成
-    3. TimesFMPureTrendStrategy  — 纯趋势预测因子
+Strategies:
+    1. TimesFMFactorStrategy     — equal-weighted three-factor combination
+    2. TimesFMAlphaStrategy      — TimesFM combined with traditional factors
+    3. TimesFMPureTrendStrategy  — pure trend-forecast factor
 
-原理:
-    框架使用月频数据 (date × permno)。对每只股票，取其月度价格序列
-    输入 TimesFM 2.5 预测下一期价格，再截面排名生成因子信号。
-    TimesFM 的优势在于零样本捕捉非线性时序模式，与传统动量/反转
-    因子低相关，适合因子集成。
+Approach:
+    The framework uses monthly data (date x permno). For each stock, its monthly price series
+    is fed to TimesFM 2.5 to forecast the next period's price, which is then ranked
+    cross-sectionally to form the factor signal. TimesFM's strength is zero-shot capture of
+    nonlinear time-series patterns; it is lowly correlated with traditional momentum/reversal
+    factors, which makes it well suited to factor ensembles.
 """
 
 import warnings
@@ -80,27 +81,27 @@ def _cross_sectional_rank(df):
 
 def compute_timesfm_factors(prices, returns, mktcap=None, batch_size=256,
                             recompute_freq=3, max_stocks=500):
-    """计算全部 TimesFM 因子
+    """Compute all TimesFM factors
 
     Parameters
     ----------
     prices : pd.DataFrame
-        月频收盘价 (date × permno)
+        Monthly close prices (date x permno)
     returns : pd.DataFrame
-        月频收益率 (date × permno)
+        Monthly returns (date x permno)
     mktcap : pd.DataFrame, optional
-        市值, 用于筛选大盘股以减少计算量
+        Market cap, used to screen for large caps and cut compute
     batch_size : int
-        推理批次大小
+        Inference batch size
     recompute_freq : int
-        每 N 个月重新预测一次 (中间月份沿用上次信号)
+        Re-forecast every N months (intervening months reuse the previous signal)
     max_stocks : int
-        每期最多预测的股票数 (按市值排序取前N)
+        Maximum number of stocks forecast per period (top N by market cap)
 
     Returns
     -------
     dict[str, pd.DataFrame]
-        因子名 → 信号 DataFrame (date × permno, [-1, 1])
+        factor name -> signal DataFrame (date x permno, [-1, 1])
     """
     model = _get_model(context=512, horizon=128)
     dates = prices.index
@@ -211,12 +212,12 @@ def compute_timesfm_factors(prices, returns, mktcap=None, batch_size=256,
 # ═══════════════════════════════════════════════════════════════════
 
 class TimesFMFactorStrategy(BaseStrategy):
-    """TimesFM 三因子等权策略
+    """TimesFM equal-weighted three-factor strategy
 
-    组合:
-        - timesfm_trend (40%): 纯预测方向
-        - timesfm_risk_adj (35%): 风险调整后信号
-        - timesfm_reversal (25%): 动量分歧反转
+    Combination:
+        - timesfm_trend (40%): pure forecast direction
+        - timesfm_risk_adj (35%): risk-adjusted signal
+        - timesfm_reversal (25%): momentum-divergence reversal
     """
     name = "TimesFM Factor Composite"
     description = "TimesFM预测因子: 趋势40% + 风险调整35% + 反转分歧25%"
@@ -245,14 +246,14 @@ class TimesFMFactorStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class TimesFMAlphaStrategy(BaseStrategy):
-    """TimesFM + 传统因子集成策略
+    """TimesFM combined with traditional factors
 
-    集成 TimesFM 预测因子与传统动量/价值/质量因子:
-        - TimesFM 风险调整因子 (30%)
-        - 12-1 动量 (25%)
-        - 3个月动量加速度 (15%)
-        - 波动率反转 (15%)
-        - TimesFM 反转分歧 (15%)
+    Blends TimesFM forecast factors with traditional momentum/value/quality factors:
+        - TimesFM risk-adjusted factor (30%)
+        - 12-1 momentum (25%)
+        - 3-month momentum acceleration (15%)
+        - Volatility reversal (15%)
+        - TimesFM reversal divergence (15%)
     """
     name = "TimesFM Alpha Ensemble"
     description = "TimesFM + 动量 + 波动率集成"
@@ -290,10 +291,10 @@ class TimesFMAlphaStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class TimesFMPureTrendStrategy(BaseStrategy):
-    """纯 TimesFM 趋势预测因子策略
+    """Pure TimesFM trend-forecast factor strategy
 
-    最简单的用法: 只用 TimesFM 风险调整后的预测收益做排名。
-    适合检验 TimesFM 单因子的 alpha。
+    The simplest use: rank purely on the TimesFM risk-adjusted forecast return.
+    Useful for testing the alpha of TimesFM as a standalone factor.
     """
     name = "TimesFM Pure Trend"
     description = "纯TimesFM风险调整预测 → 截面排名"

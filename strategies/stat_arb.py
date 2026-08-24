@@ -1,19 +1,19 @@
-"""统计套利策略集 — 10个完整的统计套利策略 + 向量化回测
+"""Statistical arbitrage suite — 10 complete stat-arb strategies + vectorized backtester
 
-包含：
-1. PairsTrading           — Engle-Granger协整配对交易
-2. SectorNeutralMomentum  — 行业中性动量（纯选股Alpha）
-3. ResidualReversion      — Fama-French残差回归均值回复
-4. ETFArbitrage           — ETF与成分股篮子套利
-5. RelativeValueVolatility— 同行业波动率相对价值
-6. CointegrationPortfolio — 多资产协整组合（PCA法）
-7. MeanReversionBasket    — 截面均值回复篮子
-8. LeadLagArbitrage       — 领先-滞后套利（Lo & MacKinlay 1990）
-9. DispersionTrading      — 自适应离散度交易
-10. OrderFlowImbalance    — 订单流失衡（量价代理）
+Contents:
+1. PairsTrading           — Engle-Granger cointegration pairs trading
+2. SectorNeutralMomentum  — sector-neutral momentum (pure stock-picking alpha)
+3. ResidualReversion      — Fama-French residual mean reversion
+4. ETFArbitrage           — ETF vs. constituent-basket arbitrage
+5. RelativeValueVolatility— intra-sector volatility relative value
+6. CointegrationPortfolio — multi-asset cointegration portfolio (PCA method)
+7. MeanReversionBasket    — cross-sectional mean-reversion basket
+8. LeadLagArbitrage       — lead-lag arbitrage (Lo & MacKinlay 1990)
+9. DispersionTrading      — adaptive dispersion trading
+10. OrderFlowImbalance    — order flow imbalance (volume-price proxy)
 
-每个策略实现 generate_signal(data) 接口，data = {ticker: DataFrame(OHLCV)}。
-末尾 run_all_stat_arb_backtests(start, end) 一键下载数据并运行全部回测。
+Every strategy implements the generate_signal(data) interface, where data = {ticker: DataFrame(OHLCV)}.
+At the end, run_all_stat_arb_backtests(start, end) downloads the data and runs every backtest in one call.
 """
 from __future__ import annotations
 
@@ -262,16 +262,16 @@ def _print_stats(name: str, rets: pd.Series) -> dict[str, float]:
 # ═══════════════════════════════════════════════════════════════════════
 
 class StatArbStrategy(ABC):
-    """统计套利策略基类"""
+    """Base class for statistical arbitrage strategies"""
     name: str = "BaseStatArb"
 
     @abstractmethod
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成信号矩阵 (date x ticker)，值越大越看多"""
+        """Generate the signal matrix (date x ticker); larger values are more bullish"""
         ...
 
     def backtest(self, data: dict[str, pd.DataFrame], **kwargs) -> pd.DataFrame:
-        """默认回测：截面多空"""
+        """Default backtest: cross-sectional long/short"""
         close = _build_close_df(data)
         returns = close.pct_change()
         signal = self.generate_signal(data)
@@ -283,16 +283,16 @@ class StatArbStrategy(ABC):
 # ═══════════════════════════════════════════════════════════════════════
 
 class PairsTrading(StatArbStrategy):
-    """协整配对交易策略
+    """Cointegration pairs trading strategy
 
-    方法：
-    1. 在形成期(formation)内对所有股票对计算相关系数作为协整代理
-    2. 选相关性最高的top_pairs对
-    3. 计算对数价差的z-score
-    4. |z|>entry_z入场，|z|<exit_z平仓，|z|>stop_z止损
-    5. 滚动窗口，同时持有max_active对
+    Method:
+    1. Over the formation period, compute the correlation of every stock pair as a cointegration proxy
+    2. Keep the top_pairs most correlated pairs
+    3. Compute the z-score of the log spread
+    4. Enter when |z| > entry_z, close when |z| < exit_z, stop loss when |z| > stop_z
+    5. Roll the window forward, holding up to max_active pairs at once
 
-    参考：Gatev, Goetzmann & Rouwenhorst (2006) "Pairs Trading"
+    Reference: Gatev, Goetzmann & Rouwenhorst (2006) "Pairs Trading"
     """
     name = "PairsTrading"
 
@@ -334,10 +334,10 @@ class PairsTrading(StatArbStrategy):
         return pairs[: self.top_pairs]
 
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成配对交易信号
+        """Generate pairs trading signals
 
-        返回 DataFrame (date x ticker)，正值=做多，负值=做空。
-        每个配对独立产生 +1/-1 信号，叠加到对应股票上。
+        Returns a DataFrame (date x ticker) where positive = long and negative = short.
+        Each pair produces its own +1/-1 signal, which is added onto the corresponding stocks.
         """
         close = _build_close_df(data)
         stocks = [t for t in UNIVERSE_50 if t in close.columns]
@@ -379,7 +379,7 @@ class PairsTrading(StatArbStrategy):
         return signal
 
     def backtest(self, data: dict[str, pd.DataFrame], **kwargs) -> pd.DataFrame:
-        """配对交易专用回测"""
+        """Backtest specific to pairs trading"""
         close = _build_close_df(data)
         returns = close.pct_change()
         signal = self.generate_signal(data)
@@ -405,15 +405,15 @@ class PairsTrading(StatArbStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class SectorNeutralMomentum(StatArbStrategy):
-    """行业中性动量策略
+    """Sector-neutral momentum strategy
 
-    方法：
-    1. 计算每只股票20日动量
-    2. 通过beta将行业ETF动量投射到个股，得到行业动量贡献
-    3. 个股动量 - 行业动量 = 纯选股Alpha
-    4. 做多Alpha最高的5只，做空Alpha最低的5只
+    Method:
+    1. Compute each stock's 20-day momentum
+    2. Project the sector ETF momentum onto the stock via beta to get its sector momentum contribution
+    3. Stock momentum - sector momentum = pure stock-picking alpha
+    4. Go long the 5 highest-alpha names and short the 5 lowest
 
-    目标：纯stock-picking，无行业敞口
+    Goal: pure stock picking with no sector exposure
     """
     name = "SectorNeutralMomentum"
 
@@ -425,9 +425,9 @@ class SectorNeutralMomentum(StatArbStrategy):
         self.short_n = short_n
 
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成行业中性动量信号
+        """Generate sector-neutral momentum signals
 
-        信号 = 个股20日动量 - beta * 行业ETF 20日动量
+        Signal = stock 20-day momentum - beta * sector ETF 20-day momentum
         """
         close = _build_close_df(data)
         returns = close.pct_change()
@@ -463,16 +463,16 @@ class SectorNeutralMomentum(StatArbStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class ResidualReversion(StatArbStrategy):
-    """Fama-French残差均值回复策略
+    """Fama-French residual mean-reversion strategy
 
-    方法：
-    1. 对每只股票做60日滚动OLS回归: stock_ret = alpha + beta * spy_ret + epsilon
-    2. 残差 = stock_ret - alpha - beta * spy_ret (个股特质收益)
-    3. 累计10日残差
-    4. 信号 = -cumulative_residual (均值回复)
+    Method:
+    1. Run a 60-day rolling OLS regression per stock: stock_ret = alpha + beta * spy_ret + epsilon
+    2. Residual = stock_ret - alpha - beta * spy_ret (idiosyncratic stock return)
+    3. Accumulate the residual over 10 days
+    4. Signal = -cumulative_residual (mean reversion)
 
-    逻辑：剥离市场因素后，个股特质收益存在短期均值回复
-    参考：Lehmann (1990), Lo & MacKinlay (1990)
+    Rationale: once the market factor is stripped out, idiosyncratic returns mean-revert over short horizons
+    Reference: Lehmann (1990), Lo & MacKinlay (1990)
     """
     name = "ResidualReversion"
 
@@ -481,9 +481,9 @@ class ResidualReversion(StatArbStrategy):
         self.cum_window = cum_window
 
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成残差回复信号
+        """Generate residual reversion signals
 
-        信号 = -cumsum(residual, 10d)，负的累计残差 → 做多（期望回归）
+        Signal = -cumsum(residual, 10d); a negative cumulative residual -> go long (expecting reversion)
         """
         close = _build_close_df(data)
         returns = close.pct_change()
@@ -513,18 +513,18 @@ class ResidualReversion(StatArbStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class ETFArbitrage(StatArbStrategy):
-    """ETF与成分股篮子套利
+    """ETF vs. constituent-basket arbitrage
 
-    方法：
-    1. 用成分股构造合成ETF收益
-    2. 计算合成ETF与实际ETF的价差
-    3. 当价差偏离 > 1.5倍标准差时入场
-    4. 三组交易：
+    Method:
+    1. Build a synthetic ETF return from the constituents
+    2. Compute the spread between the synthetic and the actual ETF
+    3. Enter when the spread deviates by more than 1.5 standard deviations
+    4. Three trades:
        - AAPL+MSFT+NVDA+GOOG+META vs QQQ
        - JPM+BAC+GS+MS vs XLF
        - XOM+CVX vs XLE
 
-    逻辑：ETF份额的创建/赎回机制保证长期价差回归
+    Rationale: the ETF creation/redemption mechanism forces the spread to converge over time
     """
     name = "ETFArbitrage"
 
@@ -541,10 +541,10 @@ class ETFArbitrage(StatArbStrategy):
         self.exit_std = exit_std
 
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成ETF套利信号
+        """Generate ETF arbitrage signals
 
-        当篮子相对ETF被低估：做多篮子做空ETF；反之亦然。
-        返回的信号中，个股和ETF都有非零值。
+        When the basket is cheap relative to the ETF: long the basket and short the ETF, and vice versa.
+        The returned signals carry non-zero values for both the constituents and the ETF.
         """
         close = _build_close_df(data)
         returns = close.pct_change()
@@ -583,7 +583,7 @@ class ETFArbitrage(StatArbStrategy):
         return signal
 
     def backtest(self, data: dict[str, pd.DataFrame], **kwargs) -> pd.DataFrame:
-        """ETF套利专用回测"""
+        """Backtest specific to ETF arbitrage"""
         close = _build_close_df(data)
         returns = close.pct_change()
         signal = self.generate_signal(data)
@@ -608,15 +608,15 @@ class ETFArbitrage(StatArbStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class RelativeValueVolatility(StatArbStrategy):
-    """同行业波动率相对价值策略
+    """Intra-sector volatility relative value strategy
 
-    方法：
-    1. 计算同行业股票对的已实现波动率（20日）
-    2. 计算波动率比率 = vol_A / vol_B
-    3. 当比率偏离历史均值 > 1.5 std: 做多低波做空高波
-    4. 当比率回归时平仓
+    Method:
+    1. Compute realized volatility (20-day) for stock pairs within the same sector
+    2. Compute the volatility ratio = vol_A / vol_B
+    3. When the ratio deviates from its historical mean by more than 1.5 std: long the low-vol name, short the high-vol name
+    4. Close when the ratio reverts
 
-    逻辑：同行业股票面临相似风险，波动率长期趋于一致
+    Rationale: stocks in the same sector face similar risks, so their volatilities converge over the long run
     """
     name = "RelativeValueVolatility"
 
@@ -627,9 +627,9 @@ class RelativeValueVolatility(StatArbStrategy):
         self.entry_std = entry_std
 
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成波动率相对价值信号
+        """Generate volatility relative value signals
 
-        行业内波动率偏低 → 做多；偏高 → 做空
+        Volatility low relative to the sector -> go long; high -> go short
         """
         close = _build_close_df(data)
         returns = close.pct_change()
@@ -661,15 +661,15 @@ class RelativeValueVolatility(StatArbStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class CointegrationPortfolio(StatArbStrategy):
-    """多资产协整组合策略（简化Johansen方法）
+    """Multi-asset cointegration portfolio strategy (simplified Johansen method)
 
-    方法：
-    1. 对行业内3-4只股票的对数价格做PCA
-    2. PC1（第一主成分）近似为协整向量
-    3. 当PC1得分偏离零值 > 2 std: 交易整个篮子
-    4. 比配对交易更稳健（不易崩溃）
+    Method:
+    1. Run PCA on the log prices of 3-4 stocks within a sector
+    2. PC1 (the first principal component) approximates the cointegrating vector
+    3. When the PC1 score deviates from zero by more than 2 std: trade the whole basket
+    4. More robust than pairs trading (less prone to breaking down)
 
-    参考：Alexander & Dimitriu (2005) "Cointegration-Based Trading Strategies"
+    Reference: Alexander & Dimitriu (2005) "Cointegration-Based Trading Strategies"
     """
     name = "CointegrationPortfolio"
 
@@ -703,9 +703,9 @@ class CointegrationPortfolio(StatArbStrategy):
         return spread
 
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成协整组合信号
+        """Generate cointegration portfolio signals
 
-        对每个行业ETF的成分股做PCA，当PC1偏离时交易
+        Run PCA on the constituents of each sector ETF and trade when PC1 deviates
         """
         close = _build_close_df(data)
         stocks = [t for t in UNIVERSE_50 if t in close.columns]
@@ -745,16 +745,16 @@ class CointegrationPortfolio(StatArbStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class MeanReversionBasket(StatArbStrategy):
-    """截面均值回复篮子策略
+    """Cross-sectional mean-reversion basket strategy
 
-    方法：
-    1. 计算等权篮子的对数价格
-    2. 每只股票相对篮子的z-score
-    3. z < -2 做多，z > 2 做空
-    4. 纯截面均值回复，日频再平衡
+    Method:
+    1. Compute the log price of the equal-weighted basket
+    2. Compute each stock's z-score relative to the basket
+    3. Long when z < -2, short when z > 2
+    4. Pure cross-sectional mean reversion, rebalanced daily
 
-    逻辑：短期内跑输/跑赢大盘的股票倾向于回归
-    参考：Jegadeesh (1990) "Evidence of Predictable Behavior of Security Returns"
+    Rationale: stocks that under- or out-perform the market over short horizons tend to revert
+    Reference: Jegadeesh (1990) "Evidence of Predictable Behavior of Security Returns"
     """
     name = "MeanReversionBasket"
 
@@ -763,9 +763,9 @@ class MeanReversionBasket(StatArbStrategy):
         self.entry_z = entry_z
 
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成截面均值回复信号
+        """Generate cross-sectional mean-reversion signals
 
-        信号 = -zscore(个股对数价格 - 篮子对数价格)
+        Signal = -zscore(stock log price - basket log price)
         """
         close = _build_close_df(data)
         stocks = [t for t in UNIVERSE_50 if t in close.columns]
@@ -789,15 +789,15 @@ class MeanReversionBasket(StatArbStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class LeadLagArbitrage(StatArbStrategy):
-    """领先-滞后套利策略
+    """Lead-lag arbitrage strategy
 
-    方法：
-    1. 计算每只股票与SPY滞后1日的相关系数: corr(stock_t, SPY_{t-1})
-    2. 高滞后相关 = 慢反应者（信息传导慢）
-    3. 当SPY上涨: 做多慢反应者（尚未反应）
-    4. 当SPY下跌: 做空慢反应者
+    Method:
+    1. Compute each stock's correlation with SPY lagged by one day: corr(stock_t, SPY_{t-1})
+    2. High lagged correlation = slow responder (information travels slowly)
+    3. When SPY rises: go long the slow responders (they have not reacted yet)
+    4. When SPY falls: short the slow responders
 
-    参考：Lo & MacKinlay (1990) "When are Contrarian Profits Due to Stock Market Overreaction?"
+    Reference: Lo & MacKinlay (1990) "When are Contrarian Profits Due to Stock Market Overreaction?"
     """
     name = "LeadLagArbitrage"
 
@@ -806,10 +806,10 @@ class LeadLagArbitrage(StatArbStrategy):
         self.top_n = top_n
 
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成领先-滞后信号
+        """Generate lead-lag signals
 
-        信号 = lagged_corr_rank * sign(SPY昨日收益)
-        滞后相关高的股票在SPY移动方向上获得更强信号
+        Signal = lagged_corr_rank * sign(SPY previous-day return)
+        Stocks with high lagged correlation get a stronger signal in the direction SPY moved
         """
         close = _build_close_df(data)
         returns = close.pct_change()
@@ -839,18 +839,18 @@ class LeadLagArbitrage(StatArbStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class DispersionTrading(StatArbStrategy):
-    """自适应离散度交易策略
+    """Adaptive dispersion trading strategy
 
-    方法：
-    1. 计算截面收益离散度 = std(横截面收益率)
-    2. 高离散度 → 均值回复更有效（个股偏离大，回归空间足）
-    3. 低离散度 → 动量更有效（趋势一致性强）
-    4. 动态切换：
-       - 离散度 > 中位数: 用5日反转信号
-       - 离散度 <= 中位数: 用20日动量信号
+    Method:
+    1. Compute cross-sectional return dispersion = std(cross-sectional returns)
+    2. High dispersion -> mean reversion works better (large deviations leave room to revert)
+    3. Low dispersion -> momentum works better (trends are more uniform)
+    4. Switch dynamically:
+       - Dispersion > median: use the 5-day reversal signal
+       - Dispersion <= median: use the 20-day momentum signal
 
-    逻辑：市场状态决定哪种策略更有效
-    参考：Stivers & Sun (2010) "Cross-Sectional Return Dispersion and Time Variation in Value and Momentum Premiums"
+    Rationale: the market regime decides which style works better
+    Reference: Stivers & Sun (2010) "Cross-Sectional Return Dispersion and Time Variation in Value and Momentum Premiums"
     """
     name = "DispersionTrading"
 
@@ -861,9 +861,9 @@ class DispersionTrading(StatArbStrategy):
         self.mom_window = mom_window
 
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成自适应信号
+        """Generate adaptive signals
 
-        高离散度时期用反转信号，低离散度时期用动量信号
+        Use the reversal signal in high-dispersion periods and the momentum signal in low-dispersion periods
         """
         close = _build_close_df(data)
         returns = close.pct_change()
@@ -900,16 +900,16 @@ class DispersionTrading(StatArbStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class OrderFlowImbalance(StatArbStrategy):
-    """订单流失衡策略（量价代理）
+    """Order flow imbalance strategy (volume-price proxy)
 
-    方法：
-    1. 买方成交量 = volume * (close - low) / (high - low)
-    2. 卖方成交量 = volume * (high - close) / (high - low)
-    3. 净流入 = 买方 - 卖方，累计5日
-    4. 截面：做多净流入最高的，做空净流入最低的
+    Method:
+    1. Buy volume = volume * (close - low) / (high - low)
+    2. Sell volume = volume * (high - close) / (high - low)
+    3. Net inflow = buy - sell, accumulated over 5 days
+    4. Cross-sectionally: long the highest net inflow, short the lowest
 
-    逻辑：日内收盘价靠近最高价 = 买压强（机构吸筹）
-    参考：Chordia, Roll & Subrahmanyam (2002) "Order Imbalance, Liquidity, and Market Returns"
+    Rationale: an intraday close near the high = strong buying pressure (institutional accumulation)
+    Reference: Chordia, Roll & Subrahmanyam (2002) "Order Imbalance, Liquidity, and Market Returns"
     """
     name = "OrderFlowImbalance"
 
@@ -917,9 +917,9 @@ class OrderFlowImbalance(StatArbStrategy):
         self.cum_window = cum_window
 
     def generate_signal(self, data: dict[str, pd.DataFrame]) -> pd.DataFrame:
-        """生成订单流失衡信号
+        """Generate order flow imbalance signals
 
-        信号 = 5日累计净买入量的截面排名
+        Signal = cross-sectional rank of the 5-day cumulative net buying volume
         """
         high = _build_ohlcv_field(data, "High")
         low = _build_ohlcv_field(data, "Low")
@@ -977,14 +977,14 @@ def download_data(
     start: str = "2016-01-01",
     end: str = "2024-12-31",
 ) -> dict[str, pd.DataFrame]:
-    """通过yfinance下载全部标的OHLCV日线数据
+    """Download daily OHLCV data for every instrument via yfinance
 
     Parameters
     ----------
     start : str
-        起始日期 YYYY-MM-DD
+        Start date, YYYY-MM-DD
     end : str
-        结束日期 YYYY-MM-DD
+        End date, YYYY-MM-DD
 
     Returns
     -------
@@ -1024,17 +1024,17 @@ def run_all_stat_arb_backtests(
     start: str = "2016-01-01",
     end: str = "2024-12-31",
 ) -> dict[str, dict]:
-    """下载数据并运行全部10个统计套利策略回测
+    """Download the data and backtest all 10 statistical arbitrage strategies
 
     Parameters
     ----------
     start, end : str
-        回测日期范围
+        Backtest date range
 
     Returns
     -------
     dict[str, dict]
-        {策略名: {"stats": {...}, "equity": Series}}
+        {strategy name: {"stats": {...}, "equity": Series}}
     """
     data = download_data(start, end)
     close = _build_close_df(data)

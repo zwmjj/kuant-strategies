@@ -1,16 +1,16 @@
-"""另类数据策略 — 基于Alpaca非价格数据的Alpha信号
+"""Alternative data strategies — alpha signals from Alpaca non-price data
 
-利用Alpaca提供的另类数据源构建交易策略:
-    1. NewsAlphaStrategy         — 新闻情绪+动量确认策略
-    2. DividendEventStrategy     — 股息事件驱动策略
-    3. SplitMomentumStrategy     — 拆股动量策略 (Ikenberry et al. 1996)
-    4. OptionsSmartMoneyStrategy — 期权聪明钱逆向策略
-    5. InstitutionalFlowStrategy — 机构资金流策略
-    6. MultiAlternativeStrategy  — 多另类数据综合策略
+Trading strategies built on the alternative data sources Alpaca provides:
+    1. NewsAlphaStrategy         — news sentiment + momentum confirmation
+    2. DividendEventStrategy     — dividend event driven
+    3. SplitMomentumStrategy     — stock split momentum (Ikenberry et al. 1996)
+    4. OptionsSmartMoneyStrategy — options smart-money contrarian
+    5. InstitutionalFlowStrategy — institutional order flow
+    6. MultiAlternativeStrategy  — composite of all alternative data signals
 
-每个策略支持两种模式:
-    - 实盘模式: 传入 AlpacaDataLoader 实例获取实时数据
-    - 回测模式: 使用价格数据生成代理信号
+Each strategy supports two modes:
+    - Live mode: pass an AlpacaDataLoader instance to fetch real-time data
+    - Backtest mode: derive proxy signals from price data
 """
 
 import logging
@@ -159,20 +159,20 @@ def _run_signal_backtest(
 # ═══════════════════════════════════════════════════════════════════════
 
 class NewsAlphaStrategy(BaseStrategy):
-    """新闻情绪Alpha策略 — 正面新闻+正向动量 = 买入，反之卖出
+    """News sentiment alpha strategy — positive news + positive momentum = buy, the reverse = sell
 
-    逻辑:
-        1. 基于关键词方法对新闻标题打情绪分 (来自 qf/signals_news.py)
-        2. 与5日价格动量结合确认信号方向
-        3. 买入: 正面新闻情绪 + 正向5日动量
-        4. 卖出: 负面新闻情绪 + 负向动量
-        5. 新闻效应在3-5天内衰减（指数衰减权重）
+    Logic:
+        1. Score news headlines with a keyword-based sentiment model (from qf/signals_news.py)
+        2. Combine with 5-day price momentum to confirm signal direction
+        3. Buy: positive news sentiment + positive 5-day momentum
+        4. Sell: negative news sentiment + negative momentum
+        5. News effects decay within 3-5 days (exponential decay weights)
 
-    回测模式:
-        无实时新闻时，使用以下价格代理:
-        - 异常成交量 → 新闻关注度代理
-        - 日内波动率 → 新闻冲击代理
-        - 与动量组合生成信号
+    Backtest mode:
+        Without live news, fall back to the following price proxies:
+        - Abnormal volume → proxy for news attention
+        - Intraday volatility → proxy for news shock
+        - Combined with momentum to form the signal
     """
 
     name = "News Alpha"
@@ -278,19 +278,19 @@ class NewsAlphaStrategy(BaseStrategy):
         return ranked
 
     def generate_signal(self, data: dict, alpaca_loader=None) -> pd.DataFrame:
-        """生成新闻Alpha信号
+        """Generate the news alpha signal
 
         Parameters
         ----------
         data : dict
-            含 'close' (和可选 'volume') 的数据字典
+            Data dict containing 'close' (and optionally 'volume')
         alpaca_loader : AlpacaDataLoader, optional
-            临时传入的Alpaca加载器（优先于__init__时的）
+            Loader passed in ad hoc (takes precedence over the one given to __init__)
 
         Returns
         -------
         pd.DataFrame
-            信号矩阵 (date x symbol)，值越高越看多
+            Signal matrix (date x symbol); higher values are more bullish
         """
         loader = alpaca_loader or self.alpaca_loader
         close = data['close']
@@ -326,18 +326,18 @@ class NewsAlphaStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class DividendEventStrategy(BaseStrategy):
-    """股息事件驱动策略 — 除息日前买入，除息日后卖出
+    """Dividend event driven strategy — buy before the ex-dividend date, sell after it
 
-    逻辑:
-        1. 追踪即将到来的除息日（Alpaca企业行动数据）
-        2. 除息日前3天买入，除息日后1天卖出
-        3. 过滤: 股息收益率 > 0.5%，股票不在下跌趋势中
-        4. 历史研究: 股息捕获策略年化增加约2-4%收益
+    Logic:
+        1. Track upcoming ex-dividend dates (Alpaca corporate action data)
+        2. Buy 3 days before the ex-dividend date, sell 1 day after
+        3. Filters: dividend yield > 0.5%, and the stock is not in a downtrend
+        4. Prior research: dividend capture adds roughly 2-4% annualized return
 
-    回测模式:
-        使用价格数据模拟股息事件:
-        - 高股息收益率代理: 低波动率 + 高均值回归倾向
-        - 除息日代理: 每月固定日期模拟
+    Backtest mode:
+        Simulate dividend events from price data:
+        - High dividend yield proxy: low volatility + strong mean-reversion tendency
+        - Ex-dividend date proxy: a fixed day each month
     """
 
     name = "Dividend Event"
@@ -469,19 +469,19 @@ class DividendEventStrategy(BaseStrategy):
         return ranked
 
     def generate_signal(self, data: dict, alpaca_loader=None) -> pd.DataFrame:
-        """生成股息事件信号
+        """Generate the dividend event signal
 
         Parameters
         ----------
         data : dict
-            含 'close' 的数据字典
+            Data dict containing 'close'
         alpaca_loader : AlpacaDataLoader, optional
-            Alpaca数据加载器
+            Alpaca data loader
 
         Returns
         -------
         pd.DataFrame
-            信号矩阵 (date x symbol)
+            Signal matrix (date x symbol)
         """
         loader = alpaca_loader or self.alpaca_loader
         if loader is not None:
@@ -495,23 +495,24 @@ class DividendEventStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class SplitMomentumStrategy(BaseStrategy):
-    """拆股动量策略 — 拆股公告后买入持有60个交易日
+    """Split momentum strategy — buy on the split announcement and hold for 60 trading days
 
-    学术依据:
-        Ikenberry, Rankine & Stice (1996): 拆股后股票倾向于在
-        3-6个月内跑赢大盘。原因可能是管理层对公司前景的信心信号。
+    Academic basis:
+        Ikenberry, Rankine & Stice (1996): stocks tend to outperform the market over
+        the 3-6 months following a split, plausibly because the split signals
+        management's confidence in the firm's prospects.
 
-    逻辑:
-        1. 追踪Alpaca企业行动中的拆股公告
-        2. 拆股公告日买入
-        3. 持有60个交易日后卖出
-        4. 等权持仓
+    Logic:
+        1. Track split announcements in Alpaca corporate actions
+        2. Buy on the split announcement date
+        3. Sell after a 60 trading day holding period
+        4. Equal-weighted positions
 
-    回测模式:
-        使用价格数据识别可能的拆股事件代理:
-        - 股价处于历史高位 (拆股通常发生在高价时)
-        - 短期快速上涨后 (管理层信心)
-        - 成交量放大 (公告效应)
+    Backtest mode:
+        Identify likely split events from price data proxies:
+        - Price near its historical high (splits typically occur at high prices)
+        - After a sharp short-term rally (management confidence)
+        - Volume expansion (announcement effect)
     """
 
     name = "Split Momentum"
@@ -603,19 +604,19 @@ class SplitMomentumStrategy(BaseStrategy):
         return ranked
 
     def generate_signal(self, data: dict, alpaca_loader=None) -> pd.DataFrame:
-        """生成拆股动量信号
+        """Generate the split momentum signal
 
         Parameters
         ----------
         data : dict
-            含 'close' 的数据字典
+            Data dict containing 'close'
         alpaca_loader : AlpacaDataLoader, optional
-            Alpaca数据加载器
+            Alpaca data loader
 
         Returns
         -------
         pd.DataFrame
-            信号矩阵 (date x symbol)
+            Signal matrix (date x symbol)
         """
         loader = alpaca_loader or self.alpaca_loader
         if loader is not None:
@@ -629,19 +630,19 @@ class SplitMomentumStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class OptionsSmartMoneyStrategy(BaseStrategy):
-    """期权聪明钱逆向策略 — 用看跌看涨比率作为逆向指标
+    """Options smart-money contrarian strategy — put/call ratio as a contrarian indicator
 
-    逻辑:
-        1. 看跌看涨比率 (PCR) 作为市场情绪指标
-        2. PCR > 1.5 = 极度恐惧 → 逆向买入
-        3. PCR < 0.5 = 极度贪婪 → 逆向卖出
-        4. 结合IV排名: PCR高 + IV排名高 = 最大恐惧 → 最强买入信号
+    Logic:
+        1. Put/call ratio (PCR) as a market sentiment gauge
+        2. PCR > 1.5 = extreme fear → contrarian buy
+        3. PCR < 0.5 = extreme greed → contrarian sell
+        4. Combined with IV rank: high PCR + high IV rank = peak fear → strongest buy signal
 
-    回测模式:
-        PCR代理: 使用价格波动特征模拟
-        - 急跌后反弹 → 高PCR代理
-        - 高波动率 + 大跌 → 恐惧代理
-        - 低波动率 + 连涨 → 贪婪代理
+    Backtest mode:
+        PCR proxy: simulated from price volatility characteristics
+        - Rebound after a sharp drop → high PCR proxy
+        - High volatility + large decline → fear proxy
+        - Low volatility + consecutive gains → greed proxy
     """
 
     name = "Options Smart Money"
@@ -750,19 +751,19 @@ class OptionsSmartMoneyStrategy(BaseStrategy):
         return ranked
 
     def generate_signal(self, data: dict, alpaca_loader=None) -> pd.DataFrame:
-        """生成期权聪明钱逆向信号
+        """Generate the options smart-money contrarian signal
 
         Parameters
         ----------
         data : dict
-            含 'close' 的数据字典
+            Data dict containing 'close'
         alpaca_loader : AlpacaDataLoader, optional
-            Alpaca数据加载器
+            Alpaca data loader
 
         Returns
         -------
         pd.DataFrame
-            信号矩阵 (date x symbol)
+            Signal matrix (date x symbol)
         """
         loader = alpaca_loader or self.alpaca_loader
         if loader is not None:
@@ -776,22 +777,22 @@ class OptionsSmartMoneyStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class InstitutionalFlowStrategy(BaseStrategy):
-    """机构资金流策略 — 追踪大单/机构买入信号
+    """Institutional flow strategy — track block-trade / institutional buying signals
 
-    逻辑:
-        1. 成交笔数/成交量比率 (trade_count / volume) 作为机构流代理
-        2. 低比率 = 大额块交易 = 机构交易
-        3. 高比率 = 小额散户交易
-        4. 跟随机构流: 检测到机构买入时买入
+    Logic:
+        1. Trade count to volume ratio (trade_count / volume) as an institutional flow proxy
+        2. Low ratio = large block trades = institutional activity
+        3. High ratio = small retail orders
+        4. Follow the flow: buy when institutional buying is detected
 
-    微观结构特征:
-        - 机构交易: 笔均金额大，比率低
-        - 散户交易: 笔均金额小，比率高
-        - 方向判断: 结合价格方向确定机构是买是卖
+    Microstructure characteristics:
+        - Institutional trades: large average trade size, low ratio
+        - Retail trades: small average trade size, high ratio
+        - Direction: combine with price direction to tell institutional buying from selling
 
-    回测模式:
-        使用price × volume的变化检测大单:
-        - 金额放大但笔数（代理: 波动率）降低 → 机构大单
+    Backtest mode:
+        Detect block trades from changes in price × volume:
+        - Notional rising while trade count (proxy: volatility) falls → institutional block trade
     """
 
     name = "Institutional Flow"
@@ -903,19 +904,19 @@ class InstitutionalFlowStrategy(BaseStrategy):
         return final
 
     def generate_signal(self, data: dict, alpaca_loader=None) -> pd.DataFrame:
-        """生成机构资金流信号
+        """Generate the institutional flow signal
 
         Parameters
         ----------
         data : dict
-            含 'close' 和 'volume' 的数据字典
+            Data dict containing 'close' and 'volume'
         alpaca_loader : AlpacaDataLoader, optional
-            Alpaca数据加载器
+            Alpaca data loader
 
         Returns
         -------
         pd.DataFrame
-            信号矩阵 (date x symbol)
+            Signal matrix (date x symbol)
         """
         loader = alpaca_loader or self.alpaca_loader
         if loader is not None:
@@ -929,21 +930,22 @@ class InstitutionalFlowStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class MultiAlternativeStrategy(BaseStrategy):
-    """多另类数据综合策略 — 等权组合5个另类数据策略
+    """Multi-source alternative data strategy — equal-weighted blend of the 5 alternative data strategies
 
-    逻辑:
-        将以下5个策略的信号等权组合:
-        1. NewsAlpha        — 新闻情绪 + 动量确认
-        2. DividendEvent    — 股息事件驱动
-        3. SplitMomentum    — 拆股动量效应
-        4. OptionsSmartMoney — 期权PCR逆向
-        5. InstitutionalFlow — 机构资金流
+    Logic:
+        Equally weight the signals of the following 5 strategies:
+        1. NewsAlpha        — news sentiment + momentum confirmation
+        2. DividendEvent    — dividend event driven
+        3. SplitMomentum    — split momentum effect
+        4. OptionsSmartMoney — options PCR contrarian
+        5. InstitutionalFlow — institutional order flow
 
-    分散化优势:
-        各策略依赖不同数据源和逻辑，相关性低，组合后:
-        - 降低单一策略失效风险
-        - 提高信号稳定性
-        - 覆盖更多市场状态
+    Diversification benefits:
+        The strategies rely on different data sources and different logic, so they
+        are weakly correlated and the blend:
+        - Reduces the risk of any single strategy breaking down
+        - Improves signal stability
+        - Covers a wider range of market regimes
     """
 
     name = "Multi Alternative"
@@ -964,19 +966,19 @@ class MultiAlternativeStrategy(BaseStrategy):
                 setattr(self, k, v)
 
     def generate_signal(self, data: dict, alpaca_loader=None) -> pd.DataFrame:
-        """生成多另类数据综合信号（等权平均）
+        """Generate the composite alternative data signal (equal-weighted average)
 
         Parameters
         ----------
         data : dict
-            含 'close' (和可选 'volume') 的数据字典
+            Data dict containing 'close' (and optionally 'volume')
         alpaca_loader : AlpacaDataLoader, optional
-            Alpaca数据加载器
+            Alpaca data loader
 
         Returns
         -------
         pd.DataFrame
-            信号矩阵 (date x symbol)
+            Signal matrix (date x symbol)
         """
         loader = alpaca_loader or self.alpaca_loader
         close = data['close']
@@ -1015,25 +1017,25 @@ def run_alternative_backtests(
     long_n: int = 10,
     short_n: int = 10,
 ) -> Dict[str, pd.DataFrame]:
-    """运行所有另类数据策略的回测（使用yfinance数据+代理信号）
+    """Run backtests for every alternative data strategy (yfinance data + proxy signals)
 
     Parameters
     ----------
     symbols : list[str], optional
-        股票列表，默认S&P 500子集
+        Ticker list; defaults to a subset of the S&P 500
     start : str
-        回测开始日期
+        Backtest start date
     end : str
-        回测结束日期
+        Backtest end date
     long_n : int
-        做多股票数
+        Number of stocks held long
     short_n : int
-        做空股票数
+        Number of stocks held short
 
     Returns
     -------
     dict[str, pd.DataFrame]
-        策略名 → 回测结果DataFrame
+        Strategy name → backtest result DataFrame
     """
     import yfinance as yf
 

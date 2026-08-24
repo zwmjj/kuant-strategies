@@ -1,25 +1,25 @@
-"""大宗商品ETF交易策略集合 — 基于Alpaca可交易ETF的8种系统性策略
+"""Commodity ETF trading strategy collection — 8 systematic strategies built on Alpaca-tradable ETFs
 
-包含策略:
-    1. GoldMomentumStrategy        — 黄金趋势动量 (GLD/GDX, 50日均线 + 波动率缩放)
-    2. OilMeanReversionStrategy    — 原油均值回归 (USO/UCO/SCO, Z-score极端值)
-    3. GoldOilRatioStrategy        — 金油比套利 (市场中性配对交易)
-    4. CommodityCarryStrategy      — 商品期限结构套利 (contango/backwardation)
-    5. GoldMinerArbitrage          — 金矿股vs黄金套利 (GDX/GLD价差回归)
-    6. MacroRegimeStrategy         — 宏观体制识别 (多资产信号定仓位)
-    7. CommodityOptionsStrategy    — 商品期权策略 (IV rank + 事件驱动)
-    8. MultiCommodityMomentum      — 多商品横截面动量 (做多强势/做空弱势)
+Strategies:
+    1. GoldMomentumStrategy        — Gold trend momentum (GLD/GDX, 50-day MA + volatility scaling)
+    2. OilMeanReversionStrategy    — Crude oil mean reversion (USO/UCO/SCO, Z-score extremes)
+    3. GoldOilRatioStrategy        — Gold/oil ratio arbitrage (market-neutral pairs trade)
+    4. CommodityCarryStrategy      — Commodity term-structure carry (contango/backwardation)
+    5. GoldMinerArbitrage          — Gold miners vs gold arbitrage (GDX/GLD spread reversion)
+    6. MacroRegimeStrategy         — Macro regime detection (multi-asset signals set positions)
+    7. CommodityOptionsStrategy    — Commodity options strategy (IV rank + event driven)
+    8. MultiCommodityMomentum      — Multi-commodity cross-sectional momentum (long strong / short weak)
 
-以及:
-    - run_commodity_backtest()          — 单策略回测
-    - run_all_commodity_backtests()     — 全策略汇总回测
+Plus:
+    - run_commodity_backtest()          — single-strategy backtest
+    - run_all_commodity_backtests()     — aggregate backtest over all strategies
 
-可用ETF (Alpaca):
-    原油: USO($124), UCO(2x), SCO(-2x), XLE, XOP, BNO, DBO
-    黄金: GLD($415), IAU, AAAU, GDX($86), GDXJ, NUGT(2x), DUST(-2x), SLV($63)
-    综合: DBC, GSG, PDBC
-    农业: WEAT, CORN, SOYB, DBA
-    天然气: UNG, BOIL, KOLD
+Available ETFs (Alpaca):
+    Crude oil: USO($124), UCO(2x), SCO(-2x), XLE, XOP, BNO, DBO
+    Gold: GLD($415), IAU, AAAU, GDX($86), GDXJ, NUGT(2x), DUST(-2x), SLV($63)
+    Broad: DBC, GSG, PDBC
+    Agriculture: WEAT, CORN, SOYB, DBA
+    Natural gas: UNG, BOIL, KOLD
 """
 
 import logging
@@ -53,7 +53,7 @@ ALL_COMMODITY_ETFS = [
 # =====================================================================
 
 class CommodityStrategyBase(ABC):
-    """大宗商品ETF策略基类"""
+    """Base class for commodity ETF strategies"""
 
     name: str = "未命名商品策略"
     description: str = ""
@@ -61,19 +61,19 @@ class CommodityStrategyBase(ABC):
     @abstractmethod
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        生成交易信号。
+        Generate trading signals.
 
-        参数:
-            data: pd.DataFrame, columns = ETF代码, index = 日期, values = 收盘价
+        Parameters:
+            data: pd.DataFrame, columns = ETF tickers, index = dates, values = close prices
 
-        返回:
-            pd.DataFrame: columns = ETF代码, index = 日期, values = 持仓权重
-                          正值 = 做多, 负值 = 做空, 0 = 空仓
+        Returns:
+            pd.DataFrame: columns = ETF tickers, index = dates, values = position weights
+                          positive = long, negative = short, 0 = flat
         """
         raise NotImplementedError
 
     def get_params(self) -> dict:
-        """返回策略参数"""
+        """Return the strategy parameters"""
         return {'name': self.name, 'description': self.description}
 
 
@@ -116,15 +116,15 @@ def _rolling_percentile(series: pd.Series, window: int = 252) -> pd.Series:
 # =====================================================================
 
 class GoldMomentumStrategy(CommodityStrategyBase):
-    """黄金趋势动量策略
+    """Gold trend momentum strategy
 
-    逻辑:
-        - 60日动量确认趋势方向
-        - GLD > 50日均线 → 做多GLD (或GDX获取杠杆)
-        - GLD < 50日均线 → 空仓或通过DUST做空
-        - 波动率缩放: 仓位 = 目标波动率 / 已实现波动率
+    Logic:
+        - 60-day momentum confirms the trend direction
+        - GLD > 50-day MA -> long GLD (or GDX for leverage)
+        - GLD < 50-day MA -> flat, or short via DUST
+        - Volatility scaling: position = target volatility / realized volatility
 
-    历史表现: 黄金趋势性强, 动量Sharpe约0.8
+    Historical performance: gold trends strongly; momentum Sharpe around 0.8
     """
 
     name = "黄金动量"
@@ -154,7 +154,7 @@ class GoldMomentumStrategy(CommodityStrategyBase):
         self.use_inverse = use_inverse
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成黄金动量信号"""
+        """Generate gold momentum signals"""
         gld = data['GLD']
         sma = _sma(gld, self.sma_window)
         mom = _momentum(gld, self.mom_window)
@@ -202,14 +202,14 @@ class GoldMomentumStrategy(CommodityStrategyBase):
 # =====================================================================
 
 class OilMeanReversionStrategy(CommodityStrategyBase):
-    """原油均值回归策略
+    """Crude oil mean reversion strategy
 
-    逻辑:
-        - 原油在极端位置均值回归性强
-        - 计算USO相对60日均值的Z-score
-        - Z < -2: 买入USO (或UCO获取2x杠杆)
-        - Z > +2: 卖出/做空USO (或买入SCO获取-2x)
-        - 严格止损: Z达到±3时平仓止损
+    Logic:
+        - Crude oil mean-reverts strongly from extreme levels
+        - Compute the Z-score of USO against its 60-day mean
+        - Z < -2: buy USO (or UCO for 2x leverage)
+        - Z > +2: sell/short USO (or buy SCO for -2x)
+        - Hard stop loss: exit when Z reaches +/-3
     """
 
     name = "原油均值回归"
@@ -233,7 +233,7 @@ class OilMeanReversionStrategy(CommodityStrategyBase):
         self.use_leveraged = use_leveraged
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成原油均值回归信号"""
+        """Generate crude oil mean reversion signals"""
         uso = data['USO']
         z = _zscore(uso, self.z_window)
 
@@ -274,13 +274,13 @@ class OilMeanReversionStrategy(CommodityStrategyBase):
 # =====================================================================
 
 class GoldOilRatioStrategy(CommodityStrategyBase):
-    """金油比配对交易策略
+    """Gold/oil ratio pairs trading strategy
 
-    逻辑:
-        - 金油比 (GLD/USO) 是经典宏观指标
-        - 比值 > 均值+2σ → 做多原油, 做空黄金 (比值回归)
-        - 比值 < 均值-2σ → 做多黄金, 做空原油
-        - 市场中性配对交易, 对冲系统性风险
+    Logic:
+        - The gold/oil ratio (GLD/USO) is a classic macro indicator
+        - Ratio > mean + 2 sigma -> long crude, short gold (ratio reverts)
+        - Ratio < mean - 2 sigma -> long gold, short crude
+        - Market-neutral pairs trade that hedges systematic risk
     """
 
     name = "金油比套利"
@@ -301,7 +301,7 @@ class GoldOilRatioStrategy(CommodityStrategyBase):
         self.exit_std = exit_std
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成金油比配对交易信号"""
+        """Generate gold/oil ratio pairs trading signals"""
         ratio = data['GLD'] / data['USO']
         z = _zscore(ratio, self.lookback)
 
@@ -335,13 +335,13 @@ class GoldOilRatioStrategy(CommodityStrategyBase):
 # =====================================================================
 
 class CommodityCarryStrategy(CommodityStrategyBase):
-    """商品期限结构Carry策略
+    """Commodity term-structure carry strategy
 
-    逻辑:
-        - Contango (期货升水): 远月>近月, 持有成本为负 → 做空商品
-        - Backwardation (期货贴水): 近月>远月, 正carry → 做多商品
-        - 用UCO/USO比值作为contango代理 (UCO在contango中衰减更快)
-        - 或用USO/BNO比较 (不同展期日期)
+    Logic:
+        - Contango (futures premium): deferred > front month, negative cost of carry -> short the commodity
+        - Backwardation (futures discount): front > deferred month, positive carry -> long the commodity
+        - Use the UCO/USO ratio as a contango proxy (UCO decays faster in contango)
+        - Alternatively compare USO/BNO (different roll dates)
     """
 
     name = "商品Carry"
@@ -362,7 +362,7 @@ class CommodityCarryStrategy(CommodityStrategyBase):
         self.carry_proxy = carry_proxy
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成Carry信号"""
+        """Generate carry signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         if self.carry_proxy == 'uco_uso':
@@ -410,14 +410,14 @@ class CommodityCarryStrategy(CommodityStrategyBase):
 # =====================================================================
 
 class GoldMinerArbitrage(CommodityStrategyBase):
-    """金矿股 vs 黄金价差套利策略
+    """Gold miners vs gold spread arbitrage strategy
 
-    逻辑:
-        - GDX(金矿股) 对黄金的beta约1.5-2x
-        - GDX/GLD比值有均值回归特性
-        - 比值下降(矿股跑输黄金) → 买GDX, 卖GLD
-        - 比值上升(矿股跑赢黄金) → 卖GDX, 买GLD
-        - Beta调整: GLD仓位 = GDX仓位 × beta
+    Logic:
+        - GDX (gold miners) has a beta of roughly 1.5-2x to gold
+        - The GDX/GLD ratio mean-reverts
+        - Ratio falling (miners underperform gold) -> buy GDX, sell GLD
+        - Ratio rising (miners outperform gold) -> sell GDX, buy GLD
+        - Beta adjustment: GLD position = GDX position x beta
     """
 
     name = "金矿套利"
@@ -444,7 +444,7 @@ class GoldMinerArbitrage(CommodityStrategyBase):
         self.hedge_ratio_cap = hedge_ratio_cap
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成金矿套利信号"""
+        """Generate gold miner arbitrage signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         if 'GDX' not in data.columns or 'GLD' not in data.columns:
@@ -489,15 +489,15 @@ class GoldMinerArbitrage(CommodityStrategyBase):
 # =====================================================================
 
 class MacroRegimeStrategy(CommodityStrategyBase):
-    """宏观体制识别策略
+    """Macro regime detection strategy
 
-    逻辑:
-        根据黄金、原油、SPY的趋势方向判断宏观体制:
-        - Risk-on (风险偏好): SPY↑, Gold平, Oil↑ → 做多油, 超配股票
-        - Risk-off (避险):    SPY↓, Gold↑, Oil↓ → 做多金, 对冲股票
-        - Inflation (通胀):   Gold↑, Oil↑, SPY平 → 做多商品
-        - Deflation (通缩):   全跌 → 现金/做空
-        每周再平衡
+    Logic:
+        Identify the macro regime from the trend direction of gold, crude oil and SPY:
+        - Risk-on:            SPY up, gold flat, oil up -> long oil, overweight equities
+        - Risk-off:           SPY down, gold up, oil down -> long gold, hedge equities
+        - Inflation:          gold up, oil up, SPY flat -> long commodities
+        - Deflation:          everything down -> cash / short
+        Rebalanced weekly
     """
 
     name = "宏观体制"
@@ -540,7 +540,7 @@ class MacroRegimeStrategy(CommodityStrategyBase):
             return 'neutral'
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成宏观体制信号"""
+        """Generate macro regime signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         required = ['SPY', 'GLD', 'USO']
@@ -593,16 +593,16 @@ class MacroRegimeStrategy(CommodityStrategyBase):
 # =====================================================================
 
 class CommodityOptionsStrategy(CommodityStrategyBase):
-    """商品期权策略
+    """Commodity options strategy
 
-    逻辑:
-        - GLD IV rank > 70%: 卖备兑看涨 (covered call)
-        - USO Z-score < -1.5: 卖看跌 (cash-secured put, 抄底)
-        - GLD低波动体制: 铁鹰策略 (iron condor, 双向卖期权)
-        - USO OPEC会议前: 买宽跨式 (strangle, 押注大波动)
+    Logic:
+        - GLD IV rank > 70%: sell covered calls
+        - USO Z-score < -1.5: sell puts (cash-secured put, buying the dip)
+        - GLD low-volatility regime: iron condor (sell options on both sides)
+        - Ahead of an OPEC meeting on USO: buy a strangle (betting on a large move)
 
-    注意: 本策略生成的信号是"ETF等价仓位",
-          实际执行需通过 options_strategies.py 的期权模块下单
+    Note: the signals produced here are "ETF-equivalent positions";
+          live execution routes orders through the options module in options_strategies.py
     """
 
     name = "商品期权"
@@ -626,13 +626,13 @@ class CommodityOptionsStrategy(CommodityStrategyBase):
         self.low_vol_percentile = low_vol_percentile
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成商品期权等价信号
+        """Generate commodity option-equivalent signals
 
-        注: 用已实现波动率作为IV的代理 (真实IV需要期权数据)。
-            信号值的含义:
-            +0.3 = 卖covered call等价仓位 (持有底层, delta约-0.3)
-            +0.5 = 卖put等价仓位 (提供流动性, delta约+0.3)
-            输出仍为ETF权重, 实际执行需映射为具体期权头寸
+        Note: realized volatility is used as a proxy for IV (true IV requires options data).
+            Meaning of the signal values:
+            +0.3 = covered-call-equivalent position (holding the underlying, delta about -0.3)
+            +0.5 = short-put-equivalent position (providing liquidity, delta about +0.3)
+            Output is still ETF weights; live execution maps them to specific option positions
         """
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
@@ -674,14 +674,14 @@ class CommodityOptionsStrategy(CommodityStrategyBase):
 # =====================================================================
 
 class MultiCommodityMomentum(CommodityStrategyBase):
-    """多商品横截面动量策略
+    """Multi-commodity cross-sectional momentum strategy
 
-    逻辑:
-        - 横截面动量: 做多最强的N个商品, 做空最弱的N个
-        - 资产池: GLD, SLV, USO, UNG, WEAT, CORN, SOYB, DBA, COPX
-        - 20日动量排名, 做多前3, 做空后3
-        - 等权, 每周再平衡
-        - 学术依据: Erb & Harvey (2006), Asness et al. (2013)
+    Logic:
+        - Cross-sectional momentum: long the N strongest commodities, short the N weakest
+        - Universe: GLD, SLV, USO, UNG, WEAT, CORN, SOYB, DBA, COPX
+        - Ranked on 20-day momentum, long the top 3, short the bottom 3
+        - Equal weighted, rebalanced weekly
+        - Academic basis: Erb & Harvey (2006), Asness et al. (2013)
     """
 
     name = "多商品动量"
@@ -707,7 +707,7 @@ class MultiCommodityMomentum(CommodityStrategyBase):
         self.rebalance_freq = rebalance_freq
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成横截面动量信号"""
+        """Generate cross-sectional momentum signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         # 筛选可用资产
@@ -772,19 +772,19 @@ def run_commodity_backtest(
     initial_capital: float = 100_000.0,
     commission_bps: float = 5.0,
 ) -> dict:
-    """单策略回测
+    """Single-strategy backtest
 
-    参数:
-        strategy: 策略实例
-        data: 价格数据 (columns=ETF, index=日期, values=收盘价)
-        initial_capital: 初始资金
-        commission_bps: 交易成本 (基点)
+    Parameters:
+        strategy: strategy instance
+        data: price data (columns=ETFs, index=dates, values=close prices)
+        initial_capital: starting capital
+        commission_bps: transaction cost (basis points)
 
-    返回:
+    Returns:
         dict: {
-            'name': 策略名,
-            'equity_curve': pd.Series (日度净值),
-            'returns': pd.Series (日度收益率),
+            'name': strategy name,
+            'equity_curve': pd.Series (daily equity),
+            'returns': pd.Series (daily returns),
             'sharpe': float,
             'cagr': float,
             'max_drawdown': float,
@@ -864,15 +864,15 @@ def run_all_commodity_backtests(
     end: str = '2026-03-28',
     initial_capital: float = 100_000.0,
 ) -> pd.DataFrame:
-    """运行全部8个商品策略回测并输出汇总表
+    """Run backtests for all 8 commodity strategies and print a summary table
 
-    参数:
-        start: 回测开始日期
-        end: 回测结束日期
-        initial_capital: 初始资金
+    Parameters:
+        start: backtest start date
+        end: backtest end date
+        initial_capital: starting capital
 
-    返回:
-        pd.DataFrame: 各策略绩效汇总 (Sharpe, CAGR%, MDD%, WR%, Calmar, Trades)
+    Returns:
+        pd.DataFrame: per-strategy performance summary (Sharpe, CAGR%, MDD%, WR%, Calmar, Trades)
     """
     import yfinance as yf
 

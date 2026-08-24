@@ -1,10 +1,10 @@
 """
-优化实盘策略 — 基于审计结果的最佳组合 + 实时过滤器
+Optimized live strategy — best blend from the audit + real-time filters
 =================================================
-核心: regime_blend 组合 (Sharpe 1.19, 审计最佳)
-叠加: VWAP过滤 + 新闻情绪 + IV Rank + 动态仓位管理
+Core: the regime_blend composite (Sharpe 1.19, best in the audit)
+Overlays: VWAP filter + news sentiment + IV rank + dynamic position sizing
 
-用于 Alpaca 纸面盘/实盘的主策略。
+The main strategy used for Alpaca paper/live trading.
 """
 import numpy as np
 import pandas as pd
@@ -14,14 +14,14 @@ from qf.optimizer import build_combo_signal, vol_target_scale, drawdown_scale
 
 class OptimizedLiveStrategy(BaseStrategy):
     """
-    优化实盘策略 — 多层信号融合 + 实时风控
+    Optimized live strategy — multi-layer signal fusion + real-time risk control
 
-    信号生成流程:
-      1. regime_blend 四因子择时信号 (GPA+ROE+MOM12+FF5Alpha, risk_parity)
-      2. VWAP 过滤: 仅做多日内价格 > VWAP 的股票
-      3. 新闻情绪叠加: 正面新闻加分, 负面新闻减分
-      4. IV Rank 叠加: 低IV Rank (期权便宜=恐慌低) 加分
-      5. 动态仓位: 波动率目标10%年化 + 回撤控制
+    Signal generation pipeline:
+      1. regime_blend four-factor timing signal (GPA+ROE+MOM12+FF5Alpha, risk_parity)
+      2. VWAP filter: only go long stocks trading above their intraday VWAP
+      3. News sentiment overlay: add for positive news, subtract for negative news
+      4. IV rank overlay: add for a low IV rank (cheap options = little panic)
+      5. Dynamic sizing: 10% annualized volatility target + drawdown control
     """
     name = "Optimized Live (regime_blend + overlays)"
     description = "审计最佳组合 Sharpe 1.19 + VWAP/情绪/IV过滤 + 动态仓位"
@@ -68,9 +68,9 @@ class OptimizedLiveStrategy(BaseStrategy):
 
     def generate_signal(self, data):
         """
-        生成优化信号 — 多层融合
+        Generate the optimized signal — multi-layer fusion
 
-        优先使用 regime_blend (Sharpe 1.19), 失败时回退到 GPA 或 composite。
+        Prefers regime_blend (Sharpe 1.19), falling back to GPA or composite on failure.
         """
         signal = self._build_base_signal(data)
         signal = self._apply_vwap_filter(signal, data)
@@ -287,12 +287,12 @@ class OptimizedLiveStrategy(BaseStrategy):
 
     def compute_position_scale(self, returns_history=None, pv_history=None):
         """
-        动态仓位缩放 — 基于波动率目标(10%年化) + 回撤控制
+        Dynamic position scaling — volatility target (10% annualized) + drawdown control
 
         Returns
         -------
         float
-            仓位缩放因子 (0.25 ~ 1.5)
+            Position scale factor (0.25 ~ 1.5)
         """
         ret_hist = returns_history or self._returns_history
         pv_hist = pv_history or self._pv_history
@@ -311,7 +311,7 @@ class OptimizedLiveStrategy(BaseStrategy):
         return v_scale * d_scale
 
     def get_params(self) -> dict:
-        """返回策略全部参数"""
+        """Return all strategy parameters"""
         params = super().get_params()
         params.update({
             'target_vol': self.target_vol,

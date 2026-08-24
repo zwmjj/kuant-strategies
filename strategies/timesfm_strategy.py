@@ -1,13 +1,14 @@
-"""TimesFM策略 — 利用Google TimesFM 2.5基础模型预测价格走势
+"""TimesFM strategies — forecasting price paths with the Google TimesFM 2.5 foundation model
 
-策略列表:
-    1. TimesFMTrendStrategy   — 逐股预测未来收益，截面排名选股
-    2. TimesFMQuantileStrategy — 利用分位数预测做风险调整后的选股
+Strategies:
+    1. TimesFMTrendStrategy   — forecast each stock's future return, select by cross-sectional rank
+    2. TimesFMQuantileStrategy — use quantile forecasts for risk-adjusted stock selection
 
-原理:
-    TimesFM是Google开源的时间序列基础模型（200M参数），
-    在大量时序数据上预训练，具备零样本（zero-shot）预测能力。
-    本策略利用其预测各股票未来N日价格，据此构建截面信号。
+Rationale:
+    TimesFM is Google's open-source time-series foundation model (200M parameters),
+    pretrained on a large corpus of time series and capable of zero-shot forecasting.
+    These strategies forecast each stock's price N days ahead and build cross-sectional
+    signals from those forecasts.
 """
 
 import warnings
@@ -94,13 +95,13 @@ def _batch_forecast(
 # ═══════════════════════════════════════════════════════════════════
 
 class TimesFMTrendStrategy(BaseStrategy):
-    """TimesFM趋势策略 — 利用基础模型预测各股票未来收益，截面排名选股
+    """TimesFM trend strategy — forecast each stock's future return with the foundation model and select by cross-sectional rank
 
-    工作流程:
-        1. 每rebalance_freq天，用过去context_days天的收盘价序列作为输入
-        2. TimesFM预测未来forecast_horizon天的价格
-        3. 计算预测收益率 = (预测末日价格 / 当前价格) - 1
-        4. 截面排名 → 信号值 [-1, 1]
+    Workflow:
+        1. Every rebalance_freq days, feed the close prices of the past context_days days as input
+        2. TimesFM forecasts prices forecast_horizon days ahead
+        3. Forecast return = (forecast final price / current price) - 1
+        4. Cross-sectional ranking -> signal in [-1, 1]
     """
     name = "TimesFM Trend"
     description = "TimesFM基础模型：零样本价格预测 → 截面排名选股"
@@ -186,16 +187,16 @@ class TimesFMTrendStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class TimesFMQuantileStrategy(BaseStrategy):
-    """TimesFM分位数策略 — 利用概率预测做风险调整后的选股
+    """TimesFM quantile strategy — risk-adjusted stock selection from probabilistic forecasts
 
-    相比纯趋势策略，本策略额外考虑预测的不确定性:
-        信号 = 预测收益 / 预测波动 (类似夏普比)
+    Relative to the pure trend strategy, this one also accounts for forecast uncertainty:
+        signal = forecast return / forecast volatility (Sharpe-like)
 
-    工作流程:
-        1. TimesFM预测未来价格的点预测和分位数预测
-        2. 用分位数宽度衡量预测不确定性
-        3. 信号 = 预测收益 / 不确定性（风险调整）
-        4. 截面排名 → 信号值 [-1, 1]
+    Workflow:
+        1. TimesFM produces both point and quantile forecasts of future prices
+        2. Quantile width measures forecast uncertainty
+        3. Signal = forecast return / uncertainty (risk adjusted)
+        4. Cross-sectional ranking -> signal in [-1, 1]
     """
     name = "TimesFM Quantile Risk-Adjusted"
     description = "TimesFM概率预测：收益/不确定性 → 风险调整后截面排名"

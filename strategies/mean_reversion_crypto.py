@@ -1,16 +1,16 @@
-"""加密货币布林带均值回归策略 — 波动率自适应 + RSI 过滤
+"""Crypto Bollinger Band mean reversion strategy — volatility adaptive + RSI filter
 
-策略说明:
-    基于布林带和RSI的加密货币均值回归策略。核心逻辑:
-    1. 布林带信号: 价格触及下轨(超卖)做多, 触及上轨(超买)做空
-    2. RSI过滤: RSI<30 确认超卖做多, RSI>70 确认超买做空, 双重确认提高胜率
-    3. 波动率自适应: 高波动率环境下自动收窄仓位, 降低风险暴露
-    4. 信号强度: 偏离布林带中轨越远, 信号越强; 经波动率调整后输出
+Overview:
+    A cryptocurrency mean reversion strategy based on Bollinger Bands and RSI. Core logic:
+    1. Bollinger signal: go long when price touches the lower band (oversold), short at the upper band (overbought)
+    2. RSI filter: RSI<30 confirms an oversold long, RSI>70 confirms an overbought short; dual confirmation raises the hit rate
+    3. Volatility adaptive: positions are automatically narrowed in high-volatility regimes to reduce risk exposure
+    4. Signal strength: the further price deviates from the Bollinger midline, the stronger the signal; output after volatility adjustment
 
-支持交易对: BTC/USD, ETH/USD, SOL/USD
-可通过 run_crypto_backtest() 进行向量化回测。
+Supported pairs: BTC/USD, ETH/USD, SOL/USD
+Vectorized backtests can be run via run_crypto_backtest().
 
-作者: KuanQuant
+Author: KuanQuant
 """
 
 from __future__ import annotations
@@ -106,24 +106,24 @@ def _compute_realized_vol(close: pd.DataFrame, window: int = 20) -> pd.DataFrame
 
 class BollingerMeanReversionCrypto(CryptoBaseStrategy):
     """
-    布林带均值回归加密货币策略 (波动率自适应 + RSI双重过滤)。
+    Bollinger Band mean reversion crypto strategy (volatility adaptive + dual RSI filter).
 
-    信号生成逻辑:
-        1. 价格 < 布林带下轨 且 RSI < rsi_oversold → 做多
-        2. 价格 > 布林带上轨 且 RSI > rsi_overbought → 做空
-        3. 信号强度 = |price - mid| / (upper - lower), 归一化到 [0, 1]
-        4. 波动率调整: 仓位 = 基础仓位 * (目标波动率 / 当前波动率)
-           高波动时自动缩仓, 低波动时放大仓位 (上限为2x)
+    Signal generation logic:
+        1. Price < lower Bollinger band and RSI < rsi_oversold -> long
+        2. Price > upper Bollinger band and RSI > rsi_overbought -> short
+        3. Signal strength = |price - mid| / (upper - lower), normalized to [0, 1]
+        4. Volatility adjustment: position = base position * (target volatility / current volatility)
+           positions shrink automatically in high volatility and scale up in low volatility (capped at 2x)
 
-    参数:
-        bb_window: 布林带SMA窗口, 默认20
-        bb_std: 布林带标准差倍数, 默认2.0
-        rsi_period: RSI周期, 默认14
-        rsi_oversold: RSI超卖阈值, 默认30
-        rsi_overbought: RSI超买阈值, 默认70
-        vol_window: 波动率计算窗口, 默认20
-        target_vol: 目标年化波动率, 默认0.5 (50%)
-        max_vol_scale: 波动率缩放上限, 默认2.0
+    Parameters:
+        bb_window: Bollinger SMA window, default 20
+        bb_std: Bollinger standard deviation multiple, default 2.0
+        rsi_period: RSI period, default 14
+        rsi_oversold: RSI oversold threshold, default 30
+        rsi_overbought: RSI overbought threshold, default 70
+        vol_window: volatility calculation window, default 20
+        target_vol: target annualized volatility, default 0.5 (50%)
+        max_vol_scale: volatility scaling cap, default 2.0
     """
 
     name = "布林带均值回归 (加密货币)"
@@ -171,22 +171,22 @@ class BollingerMeanReversionCrypto(CryptoBaseStrategy):
 
     def generate_signal(self, data_dict: dict) -> pd.DataFrame:
         """
-        生成均值回归信号矩阵。
+        Generate the mean reversion signal matrix.
 
-        流程:
-            1. 计算布林带 (中轨/上轨/下轨)
-            2. 计算RSI
-            3. 价格触及下轨 + RSI<30 → 做多信号
-            4. 价格触及上轨 + RSI>70 → 做空信号
-            5. 信号强度按偏离程度归一化
-            6. 乘以波动率缩放因子, 高波动缩仓
+        Steps:
+            1. Compute the Bollinger Bands (middle/upper/lower)
+            2. Compute RSI
+            3. Price touching the lower band + RSI<30 -> long signal
+            4. Price touching the upper band + RSI>70 -> short signal
+            5. Normalize signal strength by the size of the deviation
+            6. Multiply by the volatility scaling factor, shrinking positions in high volatility
 
-        参数:
-            data_dict: 字典, 键为交易对, 值为含 close 列的 DataFrame
+        Parameters:
+            data_dict: dictionary keyed by trading pair, values are DataFrames containing a close column
 
-        返回:
-            pd.DataFrame — 行=日期, 列=交易对, 值=调整后的信号强度
-                正值=做多, 负值=做空, 0=空仓
+        Returns:
+            pd.DataFrame — rows=date, columns=trading pair, values=volatility-adjusted signal strength
+                positive=long, negative=short, 0=flat
         """
         close = _build_close_matrix(data_dict, self.symbols)
 
@@ -232,7 +232,7 @@ class BollingerMeanReversionCrypto(CryptoBaseStrategy):
     # ── 参数报告 ────────────────────────────────────────────────────
 
     def get_params(self) -> dict:
-        """返回策略全部参数, 用于日志和报告。"""
+        """Return all strategy parameters, for logging and reporting."""
         base = super().get_params()
         base.update({
             'bb_window': self.bb_window,
@@ -253,23 +253,23 @@ class BollingerMeanReversionCrypto(CryptoBaseStrategy):
 
 def backtest_mean_reversion(data_dict: dict, **kwargs) -> dict:
     """
-    一键回测布林带均值回归策略。
+    One-call backtest of the Bollinger mean reversion strategy.
 
-    参数:
-        data_dict: 加密货币数据字典 {symbol: DataFrame}
-        **kwargs: 传递给 BollingerMeanReversionCrypto 的参数
+    Parameters:
+        data_dict: dictionary of cryptocurrency data {symbol: DataFrame}
+        **kwargs: parameters forwarded to BollingerMeanReversionCrypto
 
-    返回:
-        dict — 含 total_return, cagr, sharpe, max_drawdown, equity_curve 等
+    Returns:
+        dict — includes total_return, cagr, sharpe, max_drawdown, equity_curve and more
 
-    用法示例:
+    Example:
         from qf.strategy_crypto import prepare_crypto_data
         from strategies.mean_reversion_crypto import backtest_mean_reversion
 
         data = prepare_crypto_data(alpaca_loader, lookback_days=365)
         result = backtest_mean_reversion(data, bb_window=20, rsi_period=14)
-        print(f"夏普比率: {result['sharpe']:.2f}")
-        print(f"最大回撤: {result['max_drawdown']:.2%}")
+        print(f"Sharpe ratio: {result['sharpe']:.2f}")
+        print(f"Max drawdown: {result['max_drawdown']:.2%}")
     """
     capital = kwargs.pop('capital', 10_000)
     strategy = BollingerMeanReversionCrypto(capital=capital, **kwargs)

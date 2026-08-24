@@ -1,12 +1,12 @@
-"""动量策略 — 默认策略"""
+"""Momentum strategy — default strategy"""
 from qf.strategy import BaseStrategy
 from qf.signals import build_signal
 
 
 class MomentumStrategy(BaseStrategy):
     """
-    多时间框架动量 + 加速度
-    115/15 多空, 逆波动率加权
+    Multi-timeframe momentum + acceleration
+    115/15 long-short, inverse-volatility weighted
     """
     name = "Momentum 115/15"
     description = "Multi-timeframe momentum + acceleration, inverse-vol weighted"
@@ -26,7 +26,7 @@ class MomentumStrategy(BaseStrategy):
 
 
 class MomentumQualityStrategy(BaseStrategy):
-    """动量 + 质量 复合策略"""
+    """Momentum + quality composite strategy"""
     name = "Momentum + Quality"
 
     def __init__(self):
@@ -41,7 +41,7 @@ class MomentumQualityStrategy(BaseStrategy):
 
 
 class PureMomentumStrategy(BaseStrategy):
-    """纯12-1动量 (学术基准)"""
+    """Pure 12-1 momentum (academic benchmark)"""
     name = "Pure 12-1 Momentum"
     long_pct = 1.0
     short_pct = 0.0

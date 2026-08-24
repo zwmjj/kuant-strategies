@@ -1,19 +1,19 @@
-"""跨资产期权策略集合 — 股票/商品/债券/波动率/加密/国际/杠杆ETF
-用BS模型模拟期权P&L, 8年日线数据回测
+"""Cross-asset options strategies — equity/commodity/bond/volatility/crypto/international/leveraged ETFs
+Simulates option P&L with a Black-Scholes model, backtested on 8 years of daily data
 
-10种策略:
-    1. VolatilityTermStructureStrategy  — VIX期限结构 (VRP方差风险溢价)
-    2. GoldVolatilityStrategy           — 黄金波动率卖出 (GLD宽跨式)
-    3. BondVolatilityStrategy           — 债券波动率 (TLT FOMC日历效应)
-    4. SectorDispersionTrade            — 行业分散度交易 (SPY vs 行业ETF)
-    5. CryptoVolPremiumStrategy         — 加密货币波动率溢价 (BITO/COIN)
-    6. CrossAssetStranglePortfolio      — 跨资产宽跨式组合 (多资产分散)
-    7. CalendarSpreadStrategy           — 日历价差 (短期vs长期theta)
-    8. LeveragedETFDecayStrategy        — 杠杆ETF衰减 (波动率拖累)
-    9. SkewArbitrageStrategy            — 偏度套利 (put/call偏度差)
-   10. MacroOptionsOverlay              — 宏观期权叠加 (趋势驱动期权方向)
+10 strategies:
+    1. VolatilityTermStructureStrategy  — VIX term structure (VRP variance risk premium)
+    2. GoldVolatilityStrategy           — gold volatility selling (GLD strangles)
+    3. BondVolatilityStrategy           — bond volatility (TLT FOMC calendar effect)
+    4. SectorDispersionTrade            — sector dispersion trade (SPY vs sector ETFs)
+    5. CryptoVolPremiumStrategy         — crypto volatility premium (BITO/COIN)
+    6. CrossAssetStranglePortfolio      — cross-asset strangle portfolio (multi-asset diversification)
+    7. CalendarSpreadStrategy           — calendar spread (short-dated vs long-dated theta)
+    8. LeveragedETFDecayStrategy        — leveraged ETF decay (volatility drag)
+    9. SkewArbitrageStrategy            — skew arbitrage (put/call skew differential)
+   10. MacroOptionsOverlay              — macro options overlay (trend-driven option direction)
 
-调用: run_cross_asset_options_backtests()
+Entry point: run_cross_asset_options_backtests()
 """
 
 import sys
@@ -55,7 +55,7 @@ ALL_SYMS = sorted(set(
 # BS定价工具
 # =====================================================================
 def bs(S, K, T, sigma, r=0.05, opt='call'):
-    """Black-Scholes期权定价"""
+    """Black-Scholes option pricing"""
     S, K, T, sigma = float(S), float(K), float(T), float(sigma)
     if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
         return 0.0
@@ -98,18 +98,18 @@ def _load_data(start='2018-01-01', end='2026-03-28'):
 # 月度回测框架
 # =====================================================================
 def monthly_loop(strategy_func, close, label='', period=21):
-    """月度循环回测框架
+    """Monthly rolling backtest framework
 
     Parameters
     ----------
     strategy_func : callable(i) -> float or None
-        接受日索引i, 返回该期收益率
+        Takes the day index i and returns that period's return
     close : DataFrame
-        收盘价数据
+        Close price data
     label : str
-        策略标签
+        Strategy label
     period : int
-        持仓期 (天)
+        Holding period (days)
     """
     n = len(close)
     port_ret = []
@@ -139,20 +139,20 @@ def monthly_loop(strategy_func, close, label='', period=21):
 # 1. VIX期限结构策略 (方差风险溢价VRP)
 # =====================================================================
 class VolatilityTermStructureStrategy:
-    """VIX期限结构策略
+    """VIX term structure strategy
 
-    核心逻辑:
-    - VXX/SVXY比率捕捉VIX期限结构
-    - Contango(正常): VXX自然衰减 -> 卖VXX看跌期权 (puts到期归零)
-    - Backwardation(危机): VXX飙升 -> 买VXX看涨期权
-    - 信号: VXX 5日收益率. 负值(contango)=卖put, 正值(backwardation)=买call
-    - 这是最赚钱的系统化波动率策略 (VRP = 方差风险溢价)
+    Core logic:
+    - The VXX/SVXY ratio captures the VIX term structure
+    - Contango (normal): VXX decays naturally -> sell VXX puts (they expire worthless)
+    - Backwardation (crisis): VXX spikes -> buy VXX calls
+    - Signal: VXX 5-day return. Negative (contango) = sell puts, positive (backwardation) = buy calls
+    - The most profitable systematic volatility strategy (VRP = variance risk premium)
     """
     name = 'S1_vol_term_structure'
 
     @staticmethod
     def backtest(close, ret, rv20, rv60, iv_proxy):
-        """回测VIX期限结构策略"""
+        """Backtest the VIX term structure strategy"""
         if 'VXX' not in close.columns:
             print('  [跳过] VXX数据不可用')
             return None
@@ -197,19 +197,19 @@ class VolatilityTermStructureStrategy:
 # 2. 黄金波动率策略
 # =====================================================================
 class GoldVolatilityStrategy:
-    """黄金波动率策略
+    """Gold volatility strategy
 
-    核心逻辑:
-    - GLD期权: IV通常15-20%, 但已实现波动率往往更低
-    - 卖GLD宽跨式 (8% OTM 每侧, 30 DTE)
-    - 黄金大部分时间移动缓慢 -> 高权利金捕获率
-    - 对冲: 当黄金趋势跌破50日均线时买GLD看跌期权
+    Core logic:
+    - GLD options: IV is typically 15-20%, while realized volatility is often lower
+    - Sell GLD strangles (8% OTM each side, 30 DTE)
+    - Gold moves slowly most of the time -> high premium capture rate
+    - Hedge: buy GLD puts when the gold trend breaks below its 50-day moving average
     """
     name = 'S2_gold_volatility'
 
     @staticmethod
     def backtest(close, ret, rv20, rv60, iv_proxy):
-        """回测黄金波动率策略"""
+        """Backtest the gold volatility strategy"""
         if 'GLD' not in close.columns:
             print('  [跳过] GLD数据不可用')
             return None
@@ -254,19 +254,19 @@ class GoldVolatilityStrategy:
 # 3. 债券波动率策略
 # =====================================================================
 class BondVolatilityStrategy:
-    """债券波动率策略
+    """Bond volatility strategy
 
-    核心逻辑:
-    - TLT有独特属性: FOMC会议前IV飙升, 会后压缩
-    - 卖TLT跨式在FOMC前3天 (IV膨胀), 会后平仓
-    - TLT IV通常 > RV -> 卖铁鹰获取收入
-    - 与股票期权策略低相关
+    Core logic:
+    - TLT has a distinctive property: IV spikes ahead of FOMC meetings and compresses afterwards
+    - Sell TLT straddles 3 days before FOMC (IV inflation), close after the meeting
+    - TLT IV is usually > RV -> sell iron condors for income
+    - Low correlation with equity option strategies
     """
     name = 'S3_bond_volatility'
 
     @staticmethod
     def backtest(close, ret, rv20, rv60, iv_proxy):
-        """回测债券波动率策略"""
+        """Backtest the bond volatility strategy"""
         if 'TLT' not in close.columns:
             print('  [跳过] TLT数据不可用')
             return None
@@ -321,19 +321,19 @@ class BondVolatilityStrategy:
 # 4. 行业分散度交易
 # =====================================================================
 class SectorDispersionTrade:
-    """行业分散度交易
+    """Sector dispersion trade
 
-    核心逻辑:
-    - 卖SPY跨式 + 买各行业ETF跨式
-    - 如果各行业方向不同(分散度高), 行业跨式支付更多
-    - 如果所有行业同方向(相关性飙升), SPY跨式成本更低
-    - 净收益: 分散度 > 相关性. 历史胜率约60%
+    Core logic:
+    - Sell SPY straddles + buy straddles on individual sector ETFs
+    - If sectors move in different directions (high dispersion), the sector straddles pay more
+    - If every sector moves together (correlation spike), the SPY straddle costs less
+    - Net edge: dispersion > correlation. Historical win rate around 60%
     """
     name = 'S4_sector_dispersion'
 
     @staticmethod
     def backtest(close, ret, rv20, rv60, iv_proxy):
-        """回测行业分散度交易"""
+        """Backtest the sector dispersion trade"""
         avail_sectors = [s for s in SECTOR_ETFS if s in close.columns]
         if 'SPY' not in close.columns or len(avail_sectors) < 5:
             print('  [跳过] SPY或行业ETF数据不足')
@@ -382,19 +382,19 @@ class SectorDispersionTrade:
 # 5. 加密货币波动率溢价策略
 # =====================================================================
 class CryptoVolPremiumStrategy:
-    """加密货币波动率溢价策略
+    """Crypto volatility premium strategy
 
-    核心逻辑:
-    - 加密期权 (BITO, COIN) 拥有巨大的IV溢价
-    - BITO IV经常80-100% vs RV 50-60%
-    - 卖BITO/COIN宽跨式: 巨额权利金但也有巨大风险
-    - 风险管理: 最大5%仓位, 止损设为2倍权利金
+    Core logic:
+    - Crypto options (BITO, COIN) carry a large IV premium
+    - BITO IV is frequently 80-100% vs RV of 50-60%
+    - Sell BITO/COIN strangles: rich premium but also substantial risk
+    - Risk management: 5% max position, stop loss set at 2x the premium collected
     """
     name = 'S5_crypto_vol_premium'
 
     @staticmethod
     def backtest(close, ret, rv20, rv60, iv_proxy):
-        """回测加密货币波动率溢价策略"""
+        """Backtest the crypto volatility premium strategy"""
         avail = [s for s in CRYPTO_ETFS if s in close.columns]
         if len(avail) == 0:
             print('  [跳过] 加密ETF数据不可用')
@@ -441,16 +441,16 @@ class CryptoVolPremiumStrategy:
 # 6. 跨资产宽跨式组合
 # =====================================================================
 class CrossAssetStranglePortfolio:
-    """跨资产宽跨式组合
+    """Cross-asset strangle portfolio
 
-    核心逻辑:
-    - 分散化宽跨式卖出:
-      - 20% SPY/QQQ宽跨式 (股票波动率)
-      - 20% GLD/SLV宽跨式 (商品波动率)
-      - 20% TLT宽跨式 (债券波动率)
-      - 20% BITO/COIN宽跨式 (加密波动率)
-      - 20% IWM/EEM宽跨式 (小盘/新兴市场波动率)
-    - 核心洞察: 跨不相关资产卖波动率 = 比单一资产夏普比高得多
+    Core logic:
+    - Diversified strangle selling:
+      - 20% SPY/QQQ strangles (equity volatility)
+      - 20% GLD/SLV strangles (commodity volatility)
+      - 20% TLT strangles (bond volatility)
+      - 20% BITO/COIN strangles (crypto volatility)
+      - 20% IWM/EEM strangles (small-cap / emerging-market volatility)
+    - Key insight: selling volatility across uncorrelated assets gives a far higher Sharpe than a single asset
     """
     name = 'S6_cross_asset_strangle'
 
@@ -465,7 +465,7 @@ class CrossAssetStranglePortfolio:
 
     @staticmethod
     def backtest(close, ret, rv20, rv60, iv_proxy):
-        """回测跨资产宽跨式组合"""
+        """Backtest the cross-asset strangle portfolio"""
         n = len(close)
 
         def _strangle_pnl(sym, i, otm_pct):
@@ -509,19 +509,19 @@ class CrossAssetStranglePortfolio:
 # 7. 日历价差策略
 # =====================================================================
 class CalendarSpreadStrategy:
-    """日历价差策略
+    """Calendar spread strategy
 
-    核心逻辑:
-    - 卖短期 (周度) ATM期权 on SPY/QQQ
-    - 买长期 (月度) ATM期权作为对冲
-    - 利润来自短期theta衰减更快
-    - 在震荡行情中效果最好
+    Core logic:
+    - Sell short-dated (weekly) ATM options on SPY/QQQ
+    - Buy long-dated (monthly) ATM options as a hedge
+    - Profit comes from the faster theta decay of the short-dated leg
+    - Works best in range-bound markets
     """
     name = 'S7_calendar_spread'
 
     @staticmethod
     def backtest(close, ret, rv20, rv60, iv_proxy):
-        """回测日历价差策略"""
+        """Backtest the calendar spread strategy"""
         if 'SPY' not in close.columns:
             print('  [跳过] SPY数据不可用')
             return None
@@ -578,19 +578,19 @@ class CalendarSpreadStrategy:
 # 8. 杠杆ETF衰减策略
 # =====================================================================
 class LeveragedETFDecayStrategy:
-    """杠杆ETF衰减策略
+    """Leveraged ETF decay strategy
 
-    核心逻辑:
-    - 杠杆ETF (TQQQ, SQQQ等) 有波动率拖累
-    - 卖反向杠杆ETF的OTM看跌期权 (它们向零衰减)
-    - 卖3倍看多ETF的OTM看涨期权 (它们很少维持高位)
-    - 极高胜率但灾难性尾部风险
+    Core logic:
+    - Leveraged ETFs (TQQQ, SQQQ, etc.) suffer volatility drag
+    - Sell OTM puts on inverse leveraged ETFs (they decay toward zero)
+    - Sell OTM calls on 3x long ETFs (they rarely hold their highs)
+    - Very high win rate but catastrophic tail risk
     """
     name = 'S8_leveraged_etf_decay'
 
     @staticmethod
     def backtest(close, ret, rv20, rv60, iv_proxy):
-        """回测杠杆ETF衰减策略"""
+        """Backtest the leveraged ETF decay strategy"""
         # 反向ETF: 卖puts (它们衰减)
         inverse_etfs = [s for s in ['SQQQ', 'SPXS'] if s in close.columns]
         # 正向杠杆ETF: 卖calls (波动率拖累)
@@ -644,19 +644,19 @@ class LeveragedETFDecayStrategy:
 # 9. 偏度套利策略
 # =====================================================================
 class SkewArbitrageStrategy:
-    """偏度套利策略
+    """Skew arbitrage strategy
 
-    核心逻辑:
-    - 比较各资产的put偏度 vs call偏度
-    - 当某资产put偏度极端时, 卖puts并买对冲calls
-    - 跨资产: 如果黄金put偏度便宜而股票put偏度昂贵, 交易价差
-    - 市场中性波动率曲面套利
+    Core logic:
+    - Compare put skew against call skew across assets
+    - When an asset's put skew is extreme, sell puts and buy calls as a hedge
+    - Cross-asset: if gold put skew is cheap while equity put skew is expensive, trade the spread
+    - Market-neutral volatility surface arbitrage
     """
     name = 'S9_skew_arbitrage'
 
     @staticmethod
     def backtest(close, ret, rv20, rv60, iv_proxy):
-        """回测偏度套利策略"""
+        """Backtest the skew arbitrage strategy"""
         # 多资产偏度比较
         skew_assets = [s for s in ['SPY', 'GLD', 'TLT', 'IWM', 'EEM', 'QQQ'] if s in close.columns]
         if len(skew_assets) < 3:
@@ -721,20 +721,20 @@ class SkewArbitrageStrategy:
 # 10. 宏观期权叠加策略
 # =====================================================================
 class MacroOptionsOverlay:
-    """宏观期权叠加策略
+    """Macro options overlay strategy
 
-    核心逻辑:
-    - 使用宏观体制 (SPY/GLD/TLT趋势) 决定卖哪些期权:
-      - Risk-on: 卖SPY puts + 卖GLD calls (看多股票, 看空黄金)
-      - Risk-off: 卖GLD puts + 卖SPY calls (看多黄金, 看空股票)
-      - 通胀: 卖TLT calls + 卖USO puts (利率上升, 油价上升)
-      - 通缩: 卖SPY calls + 买TLT calls
+    Core logic:
+    - Use the macro regime (SPY/GLD/TLT trends) to decide which options to sell:
+      - Risk-on: sell SPY puts + sell GLD calls (long equities, short gold)
+      - Risk-off: sell GLD puts + sell SPY calls (long gold, short equities)
+      - Inflation: sell TLT calls + sell USO puts (rates up, oil up)
+      - Deflation: sell SPY calls + buy TLT calls
     """
     name = 'S10_macro_options_overlay'
 
     @staticmethod
     def backtest(close, ret, rv20, rv60, iv_proxy):
-        """回测宏观期权叠加策略"""
+        """Backtest the macro options overlay strategy"""
         needed = ['SPY', 'GLD', 'TLT']
         if not all(s in close.columns for s in needed):
             print('  [跳过] 宏观标的数据不足')
@@ -847,13 +847,13 @@ STRATEGIES = [
 
 
 def run_cross_asset_options_backtests():
-    """运行所有10种跨资产期权策略回测并打印汇总
+    """Run backtests for all 10 cross-asset options strategies and print a summary
 
-    下载8年历史数据, 逐策略回测, 输出:
-    - 各策略Sharpe/CAGR/MDD/胜率
-    - IS/OOS对比 (50/50分割)
-    - 子策略相关性矩阵
-    - 等权组合表现
+    Downloads 8 years of history, backtests each strategy, and reports:
+    - Sharpe/CAGR/MDD/win rate per strategy
+    - IS/OOS comparison (50/50 split)
+    - Sub-strategy correlation matrix
+    - Equal-weight portfolio performance
     """
     close, ret, rv20, rv60, iv_proxy = _load_data()
 

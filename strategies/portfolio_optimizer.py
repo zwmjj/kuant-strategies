@@ -1,9 +1,9 @@
 """
-投资组合优化器 - 多资产策略的组合优化模块
+Portfolio optimizer - portfolio construction module for multi-asset strategies
 
-提供多种组合权重分配方法：等权、风险平价、最大夏普、最小方差、
-动态风险平价、市场环境分配、波动率目标覆盖、回撤覆盖等。
-支持滚动窗口验证和综合评估。
+Provides several weighting schemes: equal weight, risk parity, maximum Sharpe, minimum variance,
+dynamic risk parity, regime-based allocation, volatility target overlay, drawdown overlay, and more.
+Supports walk-forward validation and a combined evaluation report.
 """
 
 import warnings
@@ -17,17 +17,17 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 class PortfolioOptimizer:
     """
-    投资组合优化器
+    Portfolio optimizer
 
-    接收多个子策略的月度收益率序列，提供多种权重分配方法，
-    并输出综合绩效对比表。
+    Takes the monthly return series of several sub-strategies, provides multiple weighting
+    schemes, and outputs a combined performance comparison table.
 
     Parameters
     ----------
     returns_dict : dict[str, pd.Series]
-        子策略名称到月度收益率序列的映射。所有序列应共享相同的日期索引。
+        Mapping from sub-strategy name to monthly return series. All series should share the same date index.
     rf : float
-        年化无风险利率，默认 0.0
+        Annualized risk-free rate, default 0.0
     """
 
     def __init__(self, returns_dict: Dict[str, pd.Series], rf: float = 0.0):
@@ -44,11 +44,11 @@ class PortfolioOptimizer:
     # ------------------------------------------------------------------
     def equal_weight(self) -> pd.Series:
         """
-        等权分配：每个子策略权重为 1/N
+        Equal weighting: each sub-strategy gets a weight of 1/N
 
         Returns
         -------
-        pd.Series : 各资产权重
+        pd.Series : asset weights
         """
         w = np.ones(self.n) / self.n
         return pd.Series(w, index=self.asset_names, name="equal_weight")
@@ -58,16 +58,16 @@ class PortfolioOptimizer:
     # ------------------------------------------------------------------
     def risk_parity(self, returns: Optional[pd.DataFrame] = None) -> pd.Series:
         """
-        风险平价：权重与波动率成反比，归一化后使总权重为 1
+        Risk parity: weights are inversely proportional to volatility, normalized to sum to 1
 
         Parameters
         ----------
         returns : pd.DataFrame, optional
-            如果提供，用该数据计算波动率；否则使用全样本。
+            If provided, volatility is computed from this data; otherwise the full sample is used.
 
         Returns
         -------
-        pd.Series : 各资产权重
+        pd.Series : asset weights
         """
         df = returns if returns is not None else self.returns
         vol = df.std()
@@ -87,19 +87,19 @@ class PortfolioOptimizer:
     # ------------------------------------------------------------------
     def max_sharpe(self, returns: Optional[pd.DataFrame] = None) -> pd.Series:
         """
-        最大夏普比率优化：均值-方差框架下最大化夏普比率
+        Maximum Sharpe ratio optimization: maximize the Sharpe ratio in a mean-variance framework
 
-        约束：仅做多（long-only），权重之和为 1。
-        使用 scipy.optimize.minimize 求解。
+        Constraints: long-only, weights sum to 1.
+        Solved with scipy.optimize.minimize.
 
         Parameters
         ----------
         returns : pd.DataFrame, optional
-            如果提供，用该数据做优化；否则使用全样本。
+            If provided, the optimization uses this data; otherwise the full sample is used.
 
         Returns
         -------
-        pd.Series : 各资产权重
+        pd.Series : asset weights
         """
         df = returns if returns is not None else self.returns
         mu = df.mean().values * self._ann
@@ -135,19 +135,19 @@ class PortfolioOptimizer:
     # ------------------------------------------------------------------
     def min_variance(self, returns: Optional[pd.DataFrame] = None) -> pd.Series:
         """
-        最小方差优化：在给定约束下最小化组合方差
+        Minimum variance optimization: minimize portfolio variance subject to the given constraints
 
-        约束：仅做多（long-only），权重之和为 1。
-        使用 scipy.optimize.minimize 求解。
+        Constraints: long-only, weights sum to 1.
+        Solved with scipy.optimize.minimize.
 
         Parameters
         ----------
         returns : pd.DataFrame, optional
-            如果提供，用该数据做优化；否则使用全样本。
+            If provided, the optimization uses this data; otherwise the full sample is used.
 
         Returns
         -------
-        pd.Series : 各资产权重
+        pd.Series : asset weights
         """
         df = returns if returns is not None else self.returns
         cov = df.cov().values * self._ann
@@ -177,16 +177,16 @@ class PortfolioOptimizer:
     # ------------------------------------------------------------------
     def dynamic_risk_parity(self, lookback: int = 6) -> pd.DataFrame:
         """
-        动态风险平价：使用滚动窗口计算波动率，逐月更新权重
+        Dynamic risk parity: volatility is estimated on a rolling window and weights are updated monthly
 
         Parameters
         ----------
         lookback : int
-            回溯月数，默认 6
+            Lookback in months, default 6
 
         Returns
         -------
-        pd.DataFrame : 时间序列形式的权重矩阵 (index=日期, columns=资产名)
+        pd.DataFrame : weight matrix as a time series (index=date, columns=asset name)
         """
         weight_records = []
         dates = self.returns.index
@@ -209,26 +209,26 @@ class PortfolioOptimizer:
     # ------------------------------------------------------------------
     def regime_allocation(self, spy_monthly: pd.Series) -> pd.DataFrame:
         """
-        市场环境分配：根据 SPY 月度收益率判断牛市/熊市，动态调整权重
+        Regime-based allocation: classify bull/bear markets from SPY monthly returns and adjust weights dynamically
 
-        牛市判定：SPY 过去 3 个月累计收益 > 0
-        - 牛市：超配 stocks 和 vol_arb 类资产
-        - 熊市：超配 gold 和 macro 类资产
+        Bull market test: SPY cumulative return over the past 3 months > 0
+        - Bull market: overweight stocks and vol_arb style assets
+        - Bear market: overweight gold and macro style assets
 
-        资产分类逻辑：
-        - 名称中含 'stock'/'equity'/'momentum'/'factor' -> 进攻型
-        - 名称中含 'gold'/'bond'/'macro'/'hedge' -> 防御型
-        - 名称中含 'vol'/'vix'/'arb' -> 波动率套利型
-        - 其余 -> 中性型
+        Asset classification logic:
+        - Name contains 'stock'/'equity'/'momentum'/'factor' -> offensive
+        - Name contains 'gold'/'bond'/'macro'/'hedge' -> defensive
+        - Name contains 'vol'/'vix'/'arb' -> volatility arbitrage
+        - Otherwise -> neutral
 
         Parameters
         ----------
         spy_monthly : pd.Series
-            SPY 的月度收益率，索引需与子策略对齐
+            SPY monthly returns; the index must align with the sub-strategies
 
         Returns
         -------
-        pd.DataFrame : 时间序列权重矩阵
+        pd.DataFrame : time series weight matrix
         """
 
         def _classify(name: str) -> str:
@@ -294,22 +294,22 @@ class PortfolioOptimizer:
         lookback: int = 3,
     ) -> pd.Series:
         """
-        波动率目标覆盖：根据目标波动率和实现波动率的比值缩放仓位
+        Volatility target overlay: scale positions by the ratio of target to realized volatility
 
-        scale = target_vol / realized_vol，并限制在 [0.1, 2.0] 之间
+        scale = target_vol / realized_vol, clipped to [0.1, 2.0]
 
         Parameters
         ----------
         portfolio_ret : pd.Series
-            组合月度收益率
+            Portfolio monthly returns
         target : float
-            年化目标波动率，默认 0.10（10%）
+            Annualized target volatility, default 0.10 (10%)
         lookback : int
-            计算实现波动率的回溯月数，默认 3
+            Lookback in months used to compute realized volatility, default 3
 
         Returns
         -------
-        pd.Series : 经过波动率缩放后的组合收益率
+        pd.Series : portfolio returns after volatility scaling
         """
         rolling_vol = portfolio_ret.rolling(lookback).std() * np.sqrt(12)
         scale = target / rolling_vol
@@ -328,21 +328,21 @@ class PortfolioOptimizer:
         threshold: float = 0.05,
     ) -> pd.Series:
         """
-        回撤覆盖：当回撤超过阈值时，按比例降低仓位
+        Drawdown overlay: cut positions proportionally once the drawdown exceeds a threshold
 
-        当回撤 > threshold 时，仓位缩放为 threshold / drawdown，
-        最低保留 20% 仓位。
+        When the drawdown > threshold, position size is scaled to threshold / drawdown,
+        with a floor of 20% of the position.
 
         Parameters
         ----------
         portfolio_ret : pd.Series
-            组合月度收益率
+            Portfolio monthly returns
         threshold : float
-            触发降仓的回撤阈值，默认 0.05（5%）
+            Drawdown threshold that triggers de-risking, default 0.05 (5%)
 
         Returns
         -------
-        pd.Series : 经过回撤覆盖后的组合收益率
+        pd.Series : portfolio returns after the drawdown overlay
         """
         cum = (1 + portfolio_ret).cumprod()
         running_max = cum.cummax()
@@ -362,21 +362,21 @@ class PortfolioOptimizer:
     # ------------------------------------------------------------------
     def evaluate(self, weights, label: str = "") -> dict:
         """
-        评估给定权重下组合的绩效指标
+        Evaluate portfolio performance metrics for the given weights
 
         Parameters
         ----------
         weights : pd.Series, pd.DataFrame, or array-like
-            - pd.Series : 静态权重
-            - pd.DataFrame : 时序权重矩阵（行=日期，列=资产）
-            - array-like : 同 pd.Series
+            - pd.Series : static weights
+            - pd.DataFrame : time series weight matrix (rows=dates, columns=assets)
+            - array-like : same as pd.Series
 
         label : str
-            策略标签名，用于输出标识
+            Strategy label used to identify the output
 
         Returns
         -------
-        dict : 包含 sharpe, cagr, mdd, sortino, calmar, annual_vol 等指标
+        dict : contains sharpe, cagr, mdd, sortino, calmar, annual_vol and other metrics
         """
         if isinstance(weights, pd.DataFrame):
             # 时序权重：逐月计算加权收益
@@ -458,21 +458,21 @@ class PortfolioOptimizer:
         oos_months: int = 12,
     ) -> pd.Series:
         """
-        滚动窗口（Walk-Forward）优化
+        Walk-forward optimization
 
-        在样本内（IS）使用 max_sharpe 优化权重，然后在样本外（OOS）应用该权重，
-        逐步向前滚动。
+        Optimize the weights in-sample (IS) with max_sharpe, then apply those weights
+        out-of-sample (OOS), rolling forward step by step.
 
         Parameters
         ----------
         is_months : int
-            样本内窗口月数，默认 36
+            In-sample window in months, default 36
         oos_months : int
-            样本外窗口月数，默认 12
+            Out-of-sample window in months, default 12
 
         Returns
         -------
-        pd.Series : 样本外（OOS）组合收益率的拼接序列
+        pd.Series : concatenated out-of-sample (OOS) portfolio returns
         """
         dates = self.returns.index
         total = len(dates)
@@ -509,17 +509,17 @@ class PortfolioOptimizer:
     # ------------------------------------------------------------------
     def run_all(self, spy_monthly: Optional[pd.Series] = None) -> pd.DataFrame:
         """
-        运行所有优化方法，打印综合绩效对比表
+        Run every optimization method and print the combined performance comparison table
 
         Parameters
         ----------
         spy_monthly : pd.Series, optional
-            SPY 月度收益率，用于 regime_allocation。
-            若未提供则跳过该方法。
+            SPY monthly returns, used by regime_allocation.
+            The method is skipped if this is not provided.
 
         Returns
         -------
-        pd.DataFrame : 所有方法的绩效指标对比表
+        pd.DataFrame : performance comparison table across all methods
         """
         results = []
 

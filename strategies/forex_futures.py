@@ -1,27 +1,27 @@
-"""外汇与期货ETF代理策略集合 — 基于Alpaca/yfinance可交易ETF的8种系统性策略
+"""FX and futures ETF proxy strategy collection — 8 systematic strategies built on Alpaca/yfinance-tradable ETFs
 
-包含策略:
-    1. CurrencyMomentumStrategy    — 外汇动量 (6种货币ETF横截面动量)
-    2. CurrencyCarryStrategy       — 外汇套息 (高息做多/低息做空)
-    3. GlobalMacroMomentum         — 全球宏观趋势跟踪 (AQR/Man Group风格)
-    4. RiskParityCrossAsset        — 跨资产风险平价 (Bridgewater全天候)
-    5. YieldCurveStrategy          — 收益率曲线策略 (TLT/SHY斜率信号)
-    6. CommodityCrossMomentum      — 商品横截面动量 (9种商品ETF)
-    7. FXVolTargetStrategy         — 外汇波动率目标 (低波套息/高波动量)
-    8. GlobalValueStrategy         — 全球价值 (P/SMA_200估值排序)
+Strategies:
+    1. CurrencyMomentumStrategy    — FX momentum (cross-sectional momentum over 6 currency ETFs)
+    2. CurrencyCarryStrategy       — FX carry (long high-yield / short low-yield)
+    3. GlobalMacroMomentum         — Global macro trend following (AQR / Man Group style)
+    4. RiskParityCrossAsset        — Cross-asset risk parity (Bridgewater All Weather)
+    5. YieldCurveStrategy          — Yield curve strategy (TLT/SHY slope signal)
+    6. CommodityCrossMomentum      — Commodity cross-sectional momentum (9 commodity ETFs)
+    7. FXVolTargetStrategy         — FX volatility targeting (carry in low vol / momentum in high vol)
+    8. GlobalValueStrategy         — Global value (P/SMA_200 valuation ranking)
 
-以及:
-    - run_forex_futures_backtest()       — 单策略回测
-    - run_all_forex_futures_backtests()  — 全策略汇总回测
+Plus:
+    - run_forex_futures_backtest()       — single-strategy backtest
+    - run_all_forex_futures_backtests()  — aggregate backtest over all strategies
 
-可用ETF代理:
-    外汇: UUP(美元指数), FXE(欧元), FXY(日元), FXB(英镑), FXA(澳元), FXC(加元)
-    商品期货: USO(原油), GLD(黄金), SLV(白银), UNG(天然气), DBC(综合),
-              WEAT(小麦), CORN(玉米), SOYB(大豆)
-    债券期货: TLT(20年), IEF(7-10年), SHY(1-3年), TIP(TIPS), HYG(高收益)
-    股指期货: SPY, QQQ, IWM, EFA(国际发达), EEM(新兴), FXI(中国), EWJ(日本)
+Available ETF proxies:
+    FX: UUP (dollar index), FXE (EUR), FXY (JPY), FXB (GBP), FXA (AUD), FXC (CAD)
+    Commodity futures: USO (crude), GLD (gold), SLV (silver), UNG (natural gas), DBC (broad),
+              WEAT (wheat), CORN (corn), SOYB (soybeans)
+    Bond futures: TLT (20y), IEF (7-10y), SHY (1-3y), TIP (TIPS), HYG (high yield)
+    Equity index futures: SPY, QQQ, IWM, EFA (international developed), EEM (emerging), FXI (China), EWJ (Japan)
 
-参考文献:
+References:
     - Menkhoff et al. (2012) "Currency Momentum Strategies"
     - Asness et al. (2013) "Value and Momentum Everywhere"
     - AQR "Time Series Momentum" (Moskowitz, Ooi, Pedersen 2012)
@@ -90,7 +90,7 @@ def _rank_cross_section(row: pd.Series) -> pd.Series:
 # =====================================================================
 
 class ForexFuturesStrategyBase(ABC):
-    """外汇/期货ETF策略基类"""
+    """Base class for FX / futures ETF strategies"""
 
     name: str = "未命名策略"
     description: str = ""
@@ -98,19 +98,19 @@ class ForexFuturesStrategyBase(ABC):
     @abstractmethod
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        生成交易信号。
+        Generate trading signals.
 
-        参数:
-            data: pd.DataFrame, columns = ETF代码, index = 日期, values = 收盘价
+        Parameters:
+            data: pd.DataFrame, columns = ETF tickers, index = dates, values = close prices
 
-        返回:
-            pd.DataFrame: columns = ETF代码, index = 日期, values = 持仓权重
-                          正值 = 做多, 负值 = 做空, 0 = 空仓
+        Returns:
+            pd.DataFrame: columns = ETF tickers, index = dates, values = position weights
+                          positive = long, negative = short, 0 = flat
         """
         raise NotImplementedError
 
     def get_params(self) -> dict:
-        """返回策略参数"""
+        """Return the strategy parameters"""
         return {'name': self.name, 'description': self.description}
 
 
@@ -119,17 +119,17 @@ class ForexFuturesStrategyBase(ABC):
 # =====================================================================
 
 class CurrencyMomentumStrategy(ForexFuturesStrategyBase):
-    """外汇横截面动量策略
+    """FX cross-sectional momentum strategy
 
-    逻辑:
-        - 计算6种货币ETF的20日动量
-        - 做多排名前2的货币, 做空排名后2的货币
-        - 等权配置, 每日再平衡
-        - 外汇动量效应有充分学术支持 (Menkhoff et al. 2012)
+    Logic:
+        - Compute 20-day momentum for 6 currency ETFs
+        - Long the top 2 ranked currencies, short the bottom 2
+        - Equal weighting, rebalanced daily
+        - FX momentum is well supported in the literature (Menkhoff et al. 2012)
 
-    原理:
-        外汇市场的动量效应来源于央行政策惯性、
-        资本流动持续性和投资者对宏观数据的渐进反应
+    Rationale:
+        Momentum in FX markets stems from central-bank policy inertia,
+        persistence of capital flows and investors' gradual reaction to macro data
     """
 
     name = "外汇动量"
@@ -149,7 +149,7 @@ class CurrencyMomentumStrategy(ForexFuturesStrategyBase):
         self.n_short = n_short
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成外汇动量信号"""
+        """Generate FX momentum signals"""
         available = [t for t in self.TICKERS if t in data.columns]
         if len(available) < self.n_long + self.n_short:
             return pd.DataFrame(0.0, index=data.index, columns=data.columns)
@@ -192,18 +192,18 @@ class CurrencyMomentumStrategy(ForexFuturesStrategyBase):
 # =====================================================================
 
 class CurrencyCarryStrategy(ForexFuturesStrategyBase):
-    """外汇套息代理策略
+    """FX carry proxy strategy
 
-    逻辑:
-        - 用60日收益作为利差代理
-          (高息货币ETF趋向升值 → 60日正收益)
-        - 做多"高息"前2, 做空"低息"后2
-        - 经典carry trade的ETF实现
+    Logic:
+        - Use 60-day return as a proxy for the interest-rate differential
+          (high-yield currency ETFs tend to appreciate -> positive 60-day return)
+        - Long the top 2 "high-yield", short the bottom 2 "low-yield"
+        - An ETF implementation of the classic carry trade
 
-    原理:
-        利率平价在短期内系统性偏离,
-        高息货币的升值幅度不足以抵消利差,
-        形成carry trade的超额收益来源
+    Rationale:
+        Interest-rate parity is violated systematically over short horizons;
+        appreciation of high-yield currencies does not fully offset the rate
+        differential, which is the source of carry-trade excess return
     """
 
     name = "外汇套息"
@@ -223,7 +223,7 @@ class CurrencyCarryStrategy(ForexFuturesStrategyBase):
         self.n_short = n_short
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成外汇套息信号"""
+        """Generate FX carry signals"""
         available = [t for t in self.TICKERS if t in data.columns]
         if len(available) < self.n_long + self.n_short:
             return pd.DataFrame(0.0, index=data.index, columns=data.columns)
@@ -266,22 +266,22 @@ class CurrencyCarryStrategy(ForexFuturesStrategyBase):
 # =====================================================================
 
 class GlobalMacroMomentum(ForexFuturesStrategyBase):
-    """全球宏观趋势跟踪策略
+    """Global macro trend-following strategy
 
-    逻辑:
-        - 四大资产类别:
-          股票 (SPY, QQQ, EFA, EEM)
-          债券 (TLT, IEF, TIP)
-          商品 (GLD, USO, DBC)
-          货币 (UUP)
-        - 价格 > 50日均线 → 做多, 否则做空
-        - 逆波动率加权 (等风险贡献)
-        - AQR / Man Group风格的时序动量策略
+    Logic:
+        - Four asset classes:
+          Equities (SPY, QQQ, EFA, EEM)
+          Bonds (TLT, IEF, TIP)
+          Commodities (GLD, USO, DBC)
+          Currencies (UUP)
+        - Price > 50-day moving average -> long, otherwise short
+        - Inverse-volatility weighting (equal risk contribution)
+        - Time-series momentum in the style of AQR / Man Group
 
-    原理:
-        时序动量 (TSMOM) 是最稳健的因子之一,
-        跨资产配置大幅降低单一资产依赖,
-        逆波动率加权实现风险平价
+    Rationale:
+        Time-series momentum (TSMOM) is one of the most robust factors;
+        cross-asset allocation sharply reduces reliance on any single asset,
+        and inverse-volatility weighting delivers risk parity
     """
 
     name = "全球宏观趋势"
@@ -303,7 +303,7 @@ class GlobalMacroMomentum(ForexFuturesStrategyBase):
         self.vol_window = vol_window
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成全球宏观趋势信号"""
+        """Generate global macro trend signals"""
         available = [t for t in self.ALL_TICKERS if t in data.columns]
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
@@ -346,23 +346,23 @@ class GlobalMacroMomentum(ForexFuturesStrategyBase):
 # =====================================================================
 
 class RiskParityCrossAsset(ForexFuturesStrategyBase):
-    """跨资产风险平价策略
+    """Cross-asset risk parity strategy
 
-    逻辑:
-        - 四大资产桶各占25%风险预算:
-          股票: SPY, QQQ
-          债券: TLT, IEF
-          商品: GLD, DBC
-          货币: UUP, FXE
-        - 桶内逆波动率加权
-        - 月度再平衡
-        - 目标10%年化组合波动率
-        - 经典Bridgewater全天候框架
+    Logic:
+        - Four asset buckets, each taking 25% of the risk budget:
+          Equities: SPY, QQQ
+          Bonds: TLT, IEF
+          Commodities: GLD, DBC
+          Currencies: UUP, FXE
+        - Inverse-volatility weighting within each bucket
+        - Monthly rebalance
+        - Targets 10% annualized portfolio volatility
+        - The classic Bridgewater All Weather framework
 
-    原理:
-        传统60/40组合实际上90%以上风险来自股票,
-        风险平价让每类资产贡献相同风险,
-        在不同宏观环境中都有资产表现良好
+    Rationale:
+        A traditional 60/40 portfolio actually draws over 90% of its risk from equities;
+        risk parity makes every asset class contribute the same amount of risk, so some
+        asset performs well in each macro environment
     """
 
     name = "风险平价"
@@ -389,7 +389,7 @@ class RiskParityCrossAsset(ForexFuturesStrategyBase):
         self.rebal_freq = rebal_freq
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成风险平价信号"""
+        """Generate risk parity signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
         returns = data.pct_change()
 
@@ -463,20 +463,20 @@ class RiskParityCrossAsset(ForexFuturesStrategyBase):
 # =====================================================================
 
 class YieldCurveStrategy(ForexFuturesStrategyBase):
-    """收益率曲线斜率策略
+    """Yield curve slope strategy
 
-    逻辑:
-        - TLT/SHY比率捕捉收益率曲线斜率
-        - 比率上升 (曲线陡峭化): 经济扩张信号 → risk-on
-          做多SPY + QQQ
-        - 比率下降 (曲线平坦化/倒挂): 衰退信号 → risk-off
-          做多TLT + GLD (避险资产)
-        - 用20日变化率判断方向
+    Logic:
+        - The TLT/SHY ratio captures the slope of the yield curve
+        - Rising ratio (curve steepening): expansion signal -> risk-on,
+          long SPY + QQQ
+        - Falling ratio (flattening/inversion): recession signal -> risk-off,
+          long TLT + GLD (safe-haven assets)
+        - Direction determined by the 20-day rate of change
 
-    原理:
-        收益率曲线是最强的宏观先行指标之一,
-        倒挂预测了近50年每次衰退,
-        实时可观测且难以被套利消除
+    Rationale:
+        The yield curve is one of the strongest macro leading indicators;
+        inversion has preceded every recession of the past ~50 years,
+        and it is observable in real time and hard to arbitrage away
     """
 
     name = "收益率曲线"
@@ -492,7 +492,7 @@ class YieldCurveStrategy(ForexFuturesStrategyBase):
         self.sma_window = sma_window
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成收益率曲线信号"""
+        """Generate yield curve signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         if 'TLT' not in data.columns or 'SHY' not in data.columns:
@@ -541,19 +541,19 @@ class YieldCurveStrategy(ForexFuturesStrategyBase):
 # =====================================================================
 
 class CommodityCrossMomentum(ForexFuturesStrategyBase):
-    """商品横截面动量策略
+    """Commodity cross-sectional momentum strategy
 
-    逻辑:
-        - 计算9种商品ETF的20日动量:
+    Logic:
+        - Compute 20-day momentum for 9 commodity ETFs:
           GLD, SLV, USO, UNG, WEAT, CORN, SOYB, DBC, COPX
-        - 做多排名前3, 做空排名后3
-        - 等权配置
-        - 商品动量效应显著 (Asness et al. 2013)
+        - Long the top 3, short the bottom 3
+        - Equal weighting
+        - Commodity momentum is a pronounced effect (Asness et al. 2013)
 
-    原理:
-        商品供需基本面变化缓慢,
-        趋势持续性来自库存周期和产能调整滞后,
-        横截面动量比时序动量在商品中更稳健
+    Rationale:
+        Commodity supply-demand fundamentals shift slowly, so trends persist
+        through inventory cycles and lagged capacity adjustment; cross-sectional
+        momentum is more robust than time-series momentum in commodities
     """
 
     name = "商品横截面动量"
@@ -573,7 +573,7 @@ class CommodityCrossMomentum(ForexFuturesStrategyBase):
         self.n_short = n_short
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成商品动量信号"""
+        """Generate commodity momentum signals"""
         available = [t for t in self.TICKERS if t in data.columns]
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
@@ -613,21 +613,21 @@ class CommodityCrossMomentum(ForexFuturesStrategyBase):
 # =====================================================================
 
 class FXVolTargetStrategy(ForexFuturesStrategyBase):
-    """外汇波动率目标策略
+    """FX volatility-targeting strategy
 
-    逻辑:
-        - 交易UUP (美元指数ETF)
-        - 波动率体制判断: 20日实现波动率 vs 60日平均波动率
-        - 低波环境 (20d vol < 60d avg): 套息模式
-          → 做空UUP (等于做多高息非美货币)
-        - 高波环境 (20d vol > 60d avg): 动量模式
-          → 趋势跟踪UUP方向 (> 20日SMA做多, 否则做空)
-        - 波动率缩放仓位
+    Logic:
+        - Trades UUP (dollar index ETF)
+        - Volatility regime: 20-day realized volatility vs 60-day average volatility
+        - Low-vol regime (20d vol < 60d avg): carry mode
+          -> short UUP (equivalent to long high-yield non-USD currencies)
+        - High-vol regime (20d vol > 60d avg): momentum mode
+          -> trend-follow UUP (long above the 20-day SMA, otherwise short)
+        - Volatility-scaled position sizing
 
-    原理:
-        低波动率时carry trade表现最好 (VIX低 → 风险偏好高),
-        高波动率时动量/趋势策略占优 (恐慌驱动资金流),
-        自适应切换避免单一策略的尾部风险
+    Rationale:
+        Carry trades perform best in low volatility (low VIX -> high risk appetite),
+        while momentum/trend strategies dominate in high volatility (panic-driven flows);
+        switching adaptively avoids the tail risk of running a single strategy
     """
 
     name = "外汇波动率目标"
@@ -648,7 +648,7 @@ class FXVolTargetStrategy(ForexFuturesStrategyBase):
         self.target_vol = target_vol
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成外汇波动率目标信号"""
+        """Generate FX volatility-targeting signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         if 'UUP' not in data.columns:
@@ -706,19 +706,19 @@ class FXVolTargetStrategy(ForexFuturesStrategyBase):
 # =====================================================================
 
 class GlobalValueStrategy(ForexFuturesStrategyBase):
-    """全球价值策略
+    """Global value strategy
 
-    逻辑:
-        - 用P/SMA_200作为估值代理:
-          价格/200日均线 → 低 = 便宜, 高 = 贵
-        - 对比: SPY, EFA, EEM, FXI, EWJ 五个市场
-        - 做多最便宜的2个市场, 做空最贵的2个市场
-        - 月度再平衡 (价值信号慢变)
+    Logic:
+        - Use P/SMA_200 as a valuation proxy:
+          price / 200-day moving average -> low = cheap, high = expensive
+        - Compares five markets: SPY, EFA, EEM, FXI, EWJ
+        - Long the 2 cheapest markets, short the 2 most expensive
+        - Monthly rebalance (value signals move slowly)
 
-    原理:
-        长期均值回归是全球股市最稳健的规律之一,
-        P/SMA_200低意味着市场处于长期均值下方,
-        跨国价值因子的夏普比率约0.4-0.6
+    Rationale:
+        Long-horizon mean reversion is one of the most robust regularities in global equities;
+        a low P/SMA_200 means the market trades below its long-run mean,
+        and the cross-country value factor has a Sharpe of roughly 0.4-0.6
     """
 
     name = "全球价值"
@@ -741,7 +741,7 @@ class GlobalValueStrategy(ForexFuturesStrategyBase):
         self.rebal_freq = rebal_freq
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成全球价值信号"""
+        """Generate global value signals"""
         available = [t for t in self.TICKERS if t in data.columns]
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
@@ -799,16 +799,16 @@ def run_forex_futures_backtest(
     initial_capital: float = 100_000.0,
     commission_bps: float = 5.0,
 ) -> dict:
-    """运行单个外汇/期货策略回测
+    """Run a backtest for a single FX / futures strategy
 
-    参数:
-        strategy: 策略实例
-        data: 价格数据 (columns=ETF代码, index=日期)
-        initial_capital: 初始资金 (默认10万)
-        commission_bps: 交易成本 (默认5bps)
+    Parameters:
+        strategy: strategy instance
+        data: price data (columns=ETF tickers, index=dates)
+        initial_capital: starting capital (default 100k)
+        commission_bps: transaction cost (default 5bps)
 
-    返回:
-        dict: 含净值曲线、收益序列及绩效指标
+    Returns:
+        dict: equity curve, return series and performance metrics
     """
     # 生成信号
     weights = strategy.generate_signal(data)
@@ -883,15 +883,15 @@ def run_all_forex_futures_backtests(
     end: str = '2026-03-28',
     initial_capital: float = 100_000.0,
 ) -> pd.DataFrame:
-    """运行全部8个外汇/期货策略回测并输出汇总表
+    """Run backtests for all 8 FX / futures strategies and print a summary table
 
-    参数:
-        start: 回测开始日期
-        end: 回测结束日期
-        initial_capital: 初始资金
+    Parameters:
+        start: backtest start date
+        end: backtest end date
+        initial_capital: starting capital
 
-    返回:
-        pd.DataFrame: 各策略绩效汇总 (Sharpe, CAGR%, MDD%, WR%, Calmar, Trades)
+    Returns:
+        pd.DataFrame: per-strategy performance summary (Sharpe, CAGR%, MDD%, WR%, Calmar, Trades)
     """
     logging.getLogger('yfinance').setLevel(logging.CRITICAL)
     import yfinance as yf

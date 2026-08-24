@@ -1,4 +1,4 @@
-"""日频Alpha策略 — 基于Alpaca日线数据+日频信号的每日/每周再平衡策略"""
+"""Daily alpha strategies — daily and weekly rebalanced strategies built on Alpaca daily bars and daily-frequency signals"""
 import numpy as np
 import pandas as pd
 
@@ -11,12 +11,13 @@ from qf.signals_daily import DailySignalGenerator, prepare_daily_signals
 # ═══════════════════════════════════════════════════════════════════
 
 class VWAPMomentumStrategy(BaseStrategy):
-    """VWAP偏离+短期动量组合 — 机构资金流向+趋势共振
+    """VWAP deviation + short-term momentum — institutional flow meets trend confirmation
 
-    逻辑：收盘价高于VWAP说明盘中有机构买压（扫货），
-    叠加5日动量为正表示短期趋势向上，两者共振时信号最强。
-    信号 = 0.6 * vwap_deviation + 0.4 * momentum_5d
-    日频再平衡。
+    Logic: a close above VWAP indicates institutional buying pressure during the session;
+    positive 5-day momentum on top of that indicates a short-term uptrend, and the signal is
+    strongest when the two agree.
+    signal = 0.6 * vwap_deviation + 0.4 * momentum_5d
+    Rebalanced daily.
     """
     name = "VWAP Momentum"
     description = "VWAP偏离(机构资金流)+5日动量共振，日频再平衡"
@@ -25,17 +26,17 @@ class VWAPMomentumStrategy(BaseStrategy):
     w_mom: float = 0.4
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成VWAP动量复合信号
+        """Generate the composite VWAP momentum signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'volume', 'vwap'；值为 DataFrame (date x symbol)
+            Must contain 'close', 'volume', 'vwap'; values are DataFrames (date x symbol)
 
         Returns
         -------
         pd.DataFrame
-            复合信号 (date x symbol)，值域 [-1, 1]
+            Composite signal (date x symbol), in [-1, 1]
         """
         sg = DailySignalGenerator
         close = data['close']
@@ -53,12 +54,12 @@ class VWAPMomentumStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class VolumeSurpriseStrategy(BaseStrategy):
-    """成交量异动+收益方向 — 机构吸筹/派发识别
+    """Volume anomaly + return direction — spotting institutional accumulation and distribution
 
-    逻辑：成交量突然放大（>2x 20日均量）伴随正收益 = 机构吸筹（买入）；
-    放量伴随负收益 = 机构派发（卖出）。
-    信号 = volume_surge_rank * sign(1日收益率)
-    日频再平衡。
+    Logic: a sudden volume expansion (> 2x the 20-day average) with a positive return means
+    institutional accumulation (buy); heavy volume with a negative return means distribution (sell).
+    signal = volume_surge_rank * sign(1-day return)
+    Rebalanced daily.
     """
     name = "Volume Surprise"
     description = "量价配合：放量上涨=吸筹买入，放量下跌=派发卖出"
@@ -67,17 +68,17 @@ class VolumeSurpriseStrategy(BaseStrategy):
     lookback: int = 20
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成成交量异动信号
+        """Generate the volume anomaly signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'volume'
+            Must contain 'close', 'volume'
 
         Returns
         -------
         pd.DataFrame
-            信号 (date x symbol)，值域 [-1, 1]
+            Signal (date x symbol), in [-1, 1]
         """
         sg = DailySignalGenerator
         close = data['close']
@@ -104,13 +105,13 @@ class VolumeSurpriseStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class MicrostructureAlphaStrategy(BaseStrategy):
-    """微观结构质量因子 — Amihud流动性+机构足迹+交易成本
+    """Microstructure quality factor — Amihud liquidity + institutional footprint + trading cost
 
-    逻辑：低Amihud（高流动性）+ 高单笔成交量（机构参与）+ 窄价差（低交易成本）
-    = 机构偏好的高质量交易环境。
-    信号 = -0.4*amihud + 0.3*trade_intensity + 0.3*(-spread)
-    注意：amihud_illiquidity和high_low_spread在DailySignalGenerator中已取负值。
-    日频再平衡。
+    Logic: low Amihud (high liquidity) + large average trade size (institutional participation)
+    + narrow spread (low trading cost) = the high-quality trading environment institutions prefer.
+    signal = -0.4*amihud + 0.3*trade_intensity + 0.3*(-spread)
+    Note: amihud_illiquidity and high_low_spread are already sign-flipped in DailySignalGenerator.
+    Rebalanced daily.
     """
     name = "Microstructure Alpha"
     description = "流动性+机构足迹+低交易成本 = 微观结构质量"
@@ -120,17 +121,17 @@ class MicrostructureAlphaStrategy(BaseStrategy):
     w_spread: float = 0.3
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成微观结构复合信号
+        """Generate the composite microstructure signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'volume', 'trade_count', 'high', 'low'
+            Must contain 'close', 'volume', 'trade_count', 'high', 'low'
 
         Returns
         -------
         pd.DataFrame
-            信号 (date x symbol)，值域 [-1, 1]
+            Signal (date x symbol), in [-1, 1]
         """
         sg = DailySignalGenerator
         close = data['close']
@@ -160,13 +161,13 @@ class MicrostructureAlphaStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class OvernightGapStrategy(BaseStrategy):
-    """隔夜跳空+成交量确认 — 跳空延续 vs 跳空回补
+    """Overnight gap + volume confirmation — gap continuation vs gap fill
 
-    逻辑：隔夜跳空方向 + 开盘后成交量决定延续还是回补。
-    跳空上涨 + 放量 = 信息驱动，延续趋势（买入）；
-    跳空上涨 + 缩量 = 情绪驱动，大概率回补（卖出）。
-    跳空下跌则方向相反。
-    日频再平衡。
+    Logic: the gap direction plus post-open volume decides continuation or fill.
+    Gap up + heavy volume = information driven, the move continues (buy);
+    gap up + light volume = sentiment driven and likely to fill (sell).
+    Gap downs work the other way round.
+    Rebalanced daily.
     """
     name = "Overnight Gap"
     description = "跳空+量确认：放量跳空=延续，缩量跳空=回补"
@@ -174,17 +175,17 @@ class OvernightGapStrategy(BaseStrategy):
     vol_lookback: int = 20
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成隔夜跳空信号
+        """Generate the overnight gap signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'open', 'volume'
+            Must contain 'close', 'open', 'volume'
 
         Returns
         -------
         pd.DataFrame
-            信号 (date x symbol)，值域 [-1, 1]
+            Signal (date x symbol), in [-1, 1]
         """
         sg = DailySignalGenerator
         close = data['close']
@@ -215,12 +216,12 @@ class OvernightGapStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class MultiFactorDailyStrategy(BaseStrategy):
-    """多因子日频等权组合 — 四大Alpha源均等配置
+    """Equal-weight daily multi-factor blend — four alpha sources at equal allocation
 
-    逻辑：将VWAP动量、成交量异动、微观结构、隔夜跳空四个不相关Alpha源
-    等权组合（各25%），通过分散化降低单因子风险。
-    使用 prepare_daily_signals() 获取预计算信号。
-    日频再平衡。
+    Logic: combines VWAP momentum, volume anomaly, microstructure and overnight gap — four
+    uncorrelated alpha sources — at equal weight (25% each), diversifying away single-factor risk.
+    Uses prepare_daily_signals() to obtain the precomputed signals.
+    Rebalanced daily.
     """
     name = "Multi-Factor Daily"
     description = "4因子等权: VWAP动量25% + 量异动25% + 微结构25% + 跳空25%"
@@ -231,18 +232,18 @@ class MultiFactorDailyStrategy(BaseStrategy):
     w_overnight: float = 0.25
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成多因子日频复合信号
+        """Generate the composite daily multi-factor signal
 
         Parameters
         ----------
         data : dict
-            Alpaca日线数据字典，含 'close', 'open', 'high', 'low',
+            Alpaca daily bar dictionary containing 'close', 'open', 'high', 'low',
             'volume', 'vwap', 'trade_count'
 
         Returns
         -------
         pd.DataFrame
-            复合信号 (date x symbol)，值域 [-1, 1]
+            Composite signal (date x symbol), in [-1, 1]
         """
         sg = DailySignalGenerator
 
@@ -270,11 +271,12 @@ class MultiFactorDailyStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class WeeklyRebalanceStrategy(BaseStrategy):
-    """周频再平衡多因子策略 — 降低换手和交易成本
+    """Weekly-rebalanced multi-factor strategy — lower turnover and trading costs
 
-    逻辑：与MultiFactorDaily相同的四因子等权，但每5个交易日才更新一次持仓。
-    中间日沿用上一次再平衡的信号，减少约80%的换手率。
-    适合交易成本敏感或资金量较大的账户。
+    Logic: the same equal-weight four-factor blend as MultiFactorDaily, but positions are updated
+    only every 5 trading days. On the days in between the previous rebalance signal is carried
+    forward, cutting turnover by roughly 80%.
+    Suited to cost-sensitive accounts or larger books.
     """
     name = "Weekly Rebalance Multi-Factor"
     description = "同MultiFactorDaily但每5日再平衡，降低换手80%"
@@ -282,17 +284,17 @@ class WeeklyRebalanceStrategy(BaseStrategy):
     rebalance_freq: int = 5  # 每N个交易日再平衡
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成周频再平衡信号
+        """Generate the weekly-rebalanced signal
 
         Parameters
         ----------
         data : dict
-            Alpaca日线数据字典
+            Alpaca daily bar dictionary
 
         Returns
         -------
         pd.DataFrame
-            信号 (date x symbol)，每rebalance_freq天更新一次
+            Signal (date x symbol), refreshed every rebalance_freq days
         """
         # 先获取日频多因子信号
         mf = MultiFactorDailyStrategy()
@@ -324,17 +326,17 @@ DAILY_STRATEGY_REGISTRY = {
 
 
 def get_daily_strategy(strategy_id: str) -> BaseStrategy:
-    """按ID获取日频策略实例
+    """Get a daily strategy instance by ID
 
     Parameters
     ----------
     strategy_id : str
-        策略标识符，见 DAILY_STRATEGY_REGISTRY
+        Strategy identifier; see DAILY_STRATEGY_REGISTRY
 
     Returns
     -------
     BaseStrategy
-        策略实例
+        Strategy instance
     """
     if strategy_id not in DAILY_STRATEGY_REGISTRY:
         avail = list(DAILY_STRATEGY_REGISTRY.keys())
@@ -352,37 +354,37 @@ def run_daily_backtest(strategy: BaseStrategy,
                        long_n: int = 20,
                        short_n: int = 0,
                        cost_bps: float = 5.0) -> dict:
-    """简易向量化日频回测
+    """Simple vectorized daily backtest
 
-    做多信号最高的long_n只股票，做空信号最低的short_n只（可选）。
-    等权配置，每日按信号再平衡，扣除单边交易成本。
+    Longs the long_n instruments with the highest signal and optionally shorts the short_n lowest.
+    Equal weighting, rebalanced daily on the signal, net of one-way trading costs.
 
     Parameters
     ----------
     strategy : BaseStrategy
-        策略实例，需实现 generate_signal(data_dict)
+        Strategy instance; must implement generate_signal(data_dict)
     data_dict : dict
-        Alpaca日线数据字典，必须含 'close' 和 'volume'
+        Alpaca daily bar dictionary; must contain 'close' and 'volume'
     initial_capital : float
-        初始资金（默认 10000）
+        Initial capital (default 10000)
     long_n : int
-        做多股票数量（默认 20）
+        Number of long positions (default 20)
     short_n : int
-        做空股票数量（默认 0，纯多头）
+        Number of short positions (default 0, i.e. long-only)
     cost_bps : float
-        单边交易成本（基点，默认 5bps）
+        One-way trading cost in basis points (default 5bps)
 
     Returns
     -------
     dict
-        回测结果:
-        - 'sharpe': 年化夏普比率
-        - 'total_return': 总收益率
-        - 'annual_return': 年化收益率
-        - 'max_drawdown': 最大回撤
-        - 'turnover': 日均换手率
-        - 'equity_curve': 净值序列 (pd.Series)
-        - 'daily_returns': 日收益率序列 (pd.Series)
+        Backtest results:
+        - 'sharpe': annualized Sharpe ratio
+        - 'total_return': total return
+        - 'annual_return': annualized return
+        - 'max_drawdown': maximum drawdown
+        - 'turnover': average daily turnover
+        - 'equity_curve': equity curve (pd.Series)
+        - 'daily_returns': daily return series (pd.Series)
     """
     # 生成信号
     signal = strategy.generate_signal(data_dict)
@@ -458,19 +460,19 @@ def run_daily_backtest(strategy: BaseStrategy,
 
 
 def run_all_daily_backtests(data_dict: dict, **kwargs) -> pd.DataFrame:
-    """对所有注册的日频策略运行回测，返回汇总表
+    """Backtest every registered daily strategy and return the summary table
 
     Parameters
     ----------
     data_dict : dict
-        Alpaca日线数据字典
+        Alpaca daily bar dictionary
     **kwargs
-        传递给 run_daily_backtest 的额外参数
+        Extra arguments forwarded to run_daily_backtest
 
     Returns
     -------
     pd.DataFrame
-        策略 x 指标 的汇总表
+        Strategy x metric summary table
     """
     results = {}
     for sid, cls in DAILY_STRATEGY_REGISTRY.items():
