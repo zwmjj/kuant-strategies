@@ -1,11 +1,11 @@
-"""新闻+Screener复合策略 — 结合Alpaca新闻情绪和screener数据的策略族
+"""News + screener composite strategies — a strategy family combining Alpaca news sentiment and screener data
 
-包含策略:
-    1. NewsMomentumStrategy      — 新闻情绪顺势策略
-    2. NewsContrarianStrategy     — 新闻过度反应逆势策略
-    3. AttentionMomentumStrategy  — 关注度动量策略
-    4. MarketMoversStrategy       — 市场异动延续策略
-    5. CompositeAlpacaStrategy    — Alpaca全数据旗舰策略
+Strategies included:
+    1. NewsMomentumStrategy      — news sentiment trend following
+    2. NewsContrarianStrategy     — news overreaction contrarian
+    3. AttentionMomentumStrategy  — attention momentum
+    4. MarketMoversStrategy       — market mover continuation
+    5. CompositeAlpacaStrategy    — Alpaca full-data flagship
 """
 
 import numpy as np
@@ -44,25 +44,25 @@ def run_signal_backtest(
     short_n: int = 20,
     cost_bps: float = 5.0,
 ) -> pd.DataFrame:
-    """快速信号回测 — 根据信号做多/做空并计算收益
+    """Quick signal backtest — go long/short on the signal and compute returns
 
     Parameters
     ----------
     signal_series : pd.DataFrame
-        信号矩阵 (date x symbol)，值越高越看多
+        Signal matrix (date x symbol); higher values are more bullish
     returns_df : pd.DataFrame
-        日收益率矩阵 (date x symbol)，与signal对齐
+        Daily return matrix (date x symbol), aligned with the signal
     long_n : int
-        做多股票数量，默认20
+        Number of stocks held long, default 20
     short_n : int
-        做空股票数量，默认20
+        Number of stocks held short, default 20
     cost_bps : float
-        单边交易成本（基点），默认5bps
+        One-way trading cost in basis points, default 5bps
 
     Returns
     -------
     pd.DataFrame
-        包含 long_ret, short_ret, ls_ret, cum_ret, turnover 列的日度回测结果
+        Daily backtest results with columns long_ret, short_ret, ls_ret, cum_ret, turnover
     """
     signal_series, returns_df = _safe_align(signal_series, returns_df)
 
@@ -144,15 +144,15 @@ def run_signal_backtest(
 # ═══════════════════════════════════════════════════════════════════════
 
 class NewsMomentumStrategy(BaseStrategy):
-    """新闻情绪+价格动量顺势策略
+    """News sentiment + price momentum trend-following strategy
 
-    核心逻辑: 正面新闻情绪 + 正向价格动量 = 强买入信号。
-    新闻数量作为放大器 — 关注度越高，信号越强。
+    Core logic: positive news sentiment + positive price momentum = strong buy signal.
+    News count acts as an amplifier — the more attention, the stronger the signal.
 
-    信号公式:
+    Signal formula:
         signal = 0.5 * news_sentiment + 0.3 * momentum_5d + 0.2 * news_volume
 
-    适用场景: 趋势启动期，新闻催化 + 价格确认的共振行情。
+    Best suited to: the start of a trend, where a news catalyst and price confirmation reinforce each other.
     """
     name = "新闻顺势动量"
     description = "正面情绪+价格动量共振，新闻量放大信号"
@@ -171,19 +171,19 @@ class NewsMomentumStrategy(BaseStrategy):
         self._news_gen = NewsSentimentGenerator()
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成新闻顺势动量信号
+        """Generate the news trend-following momentum signal
 
         Parameters
         ----------
         data : dict
-            必须包含:
-            - 'prices': pd.DataFrame (date x symbol), 收盘价
-            - 'news_by_symbol': dict[str, list], 每日新闻数据
-              或 'news_by_date': dict[date, dict[str, list]], 历史每日新闻
+            Must contain:
+            - 'prices': pd.DataFrame (date x symbol), closing prices
+            - 'news_by_symbol': dict[str, list], daily news data
+              or 'news_by_date': dict[date, dict[str, list]], historical daily news
 
         Returns
         -------
-        pd.DataFrame : (date x symbol) 信号矩阵
+        pd.DataFrame : (date x symbol) signal matrix
         """
         prices = data['prices']
         mom = _momentum(prices, self.mom_window)
@@ -237,15 +237,15 @@ class NewsMomentumStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class NewsContrarianStrategy(BaseStrategy):
-    """新闻过度反应逆势策略
+    """News overreaction contrarian strategy
 
-    核心逻辑: 基本面良好的股票遭遇极端负面新闻 = 市场过度反应 = 买入机会。
-    过滤条件: 只在股票20日动量为正（说明基本面尚可）时才触发买入。
+    Core logic: a fundamentally sound stock hit by extremely negative news = market overreaction = buying opportunity.
+    Filter: only trigger a buy when the stock's 20-day momentum is positive (fundamentals still look intact).
 
-    信号公式:
+    Signal formula:
         signal = -sentiment * (1 if prior_momentum_20d > 0 else 0)
 
-    适用场景: 恐慌性抛售后的反弹捕捉。蓝筹股被错杀时效果最佳。
+    Best suited to: catching the bounce after panic selling. Works best on blue chips that were sold off unfairly.
     """
     name = "新闻逆势（过度反应）"
     description = "极端负面情绪+基本面良好=超卖反弹"
@@ -259,18 +259,18 @@ class NewsContrarianStrategy(BaseStrategy):
         self._news_gen = NewsSentimentGenerator()
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成新闻逆势信号
+        """Generate the news contrarian signal
 
         Parameters
         ----------
         data : dict
-            必须包含:
+            Must contain:
             - 'prices': pd.DataFrame (date x symbol)
-            - 'news_by_symbol' 或 'news_by_date'
+            - 'news_by_symbol' or 'news_by_date'
 
         Returns
         -------
-        pd.DataFrame : (date x symbol) 信号矩阵，仅对满足条件的股票给正信号
+        pd.DataFrame : (date x symbol) signal matrix; only stocks meeting the filter get a positive signal
         """
         prices = data['prices']
 
@@ -315,15 +315,15 @@ class NewsContrarianStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class AttentionMomentumStrategy(BaseStrategy):
-    """关注度+动量双确认策略
+    """Attention + momentum dual-confirmation strategy
 
-    核心逻辑: Alpaca most_actives 榜单上的股票具有短期动量效应（注意力驱动收益）。
-    结合5日价格动量进行确认，避免纯关注度噪音。
+    Core logic: stocks on the Alpaca most_actives list exhibit short-term momentum (attention-driven returns).
+    Confirmed against 5-day price momentum to filter out pure attention noise.
 
-    信号公式:
+    Signal formula:
         signal = 0.6 * attention + 0.4 * momentum_5d
 
-    适用场景: 热门股票的短期趋势跟踪。适合1-5天持仓周期。
+    Best suited to: short-term trend following on hot stocks. Fits 1-5 day holding periods.
     """
     name = "关注度动量"
     description = "screener关注度+价格动量双确认"
@@ -339,19 +339,19 @@ class AttentionMomentumStrategy(BaseStrategy):
         self.mom_window = mom_window
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成关注度动量信号
+        """Generate the attention momentum signal
 
         Parameters
         ----------
         data : dict
-            必须包含:
+            Must contain:
             - 'prices': pd.DataFrame (date x symbol)
-            - 'most_actives': list[dict] (当日)
-              或 'most_actives_by_date': dict[date, list[dict]] (历史)
+            - 'most_actives': list[dict] (current day)
+              or 'most_actives_by_date': dict[date, list[dict]] (history)
 
         Returns
         -------
-        pd.DataFrame : (date x symbol) 信号矩阵
+        pd.DataFrame : (date x symbol) signal matrix
         """
         prices = data['prices']
         universe = list(prices.columns)
@@ -395,17 +395,17 @@ class AttentionMomentumStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class MarketMoversStrategy(BaseStrategy):
-    """市场异动延续策略
+    """Market mover continuation strategy
 
-    核心逻辑:
-    - 今日涨幅榜 + 正面新闻 = 明日继续涨（趋势延续）
-    - 今日跌幅榜 + 无负面新闻 = 明日超卖反弹（错杀修复）
+    Core logic:
+    - Today's top gainers + positive news = continued gains tomorrow (trend continuation)
+    - Today's top losers + no negative news = oversold bounce tomorrow (mispricing correction)
 
-    两个子信号等权组合:
+    Two sub-signals, equally weighted:
     - gainer_continuation = gainer_rank * max(sentiment, 0)
     - loser_bounce = loser_rank * max(-sentiment + neutral_bonus, 0)
 
-    适用场景: 日频交易，捕捉市场异动后的次日延续/反转。
+    Best suited to: daily trading, capturing next-day continuation/reversal after a large move.
     """
     name = "市场异动延续"
     description = "涨幅榜+正面新闻延续，跌幅榜+无利空反弹"
@@ -415,20 +415,20 @@ class MarketMoversStrategy(BaseStrategy):
         self._news_gen = NewsSentimentGenerator()
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成市场异动延续信号
+        """Generate the market mover continuation signal
 
         Parameters
         ----------
         data : dict
-            必须包含:
+            Must contain:
             - 'prices': pd.DataFrame (date x symbol)
-            - 'gainers': list[dict] (当日涨幅榜)
-            - 'losers': list[dict] (当日跌幅榜)
-            - 'news_by_symbol': dict[str, list] 或 'news_by_date'
+            - 'gainers': list[dict] (current day's top gainers)
+            - 'losers': list[dict] (current day's top losers)
+            - 'news_by_symbol': dict[str, list] or 'news_by_date'
 
         Returns
         -------
-        pd.DataFrame : (date x symbol) 信号矩阵
+        pd.DataFrame : (date x symbol) signal matrix
         """
         prices = data['prices']
         universe = list(prices.columns)
@@ -503,18 +503,19 @@ class MarketMoversStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════════
 
 class CompositeAlpacaStrategy(BaseStrategy):
-    """Alpaca全数据旗舰策略 — 结合所有Alpaca数据源的"厨房水槽"策略
+    """Alpaca full-data flagship strategy — the "kitchen sink" strategy combining every Alpaca data source
 
-    权重分配:
-        20% 新闻情绪     — NewsSentimentGenerator
-        20% VWAP动量     — (price - vwap) / vwap 截面排名
-        15% 成交量飙升   — volume / avg_volume_20d 截面排名
-        15% IV排名       — 隐含波动率百分位（高IV空，低IV多）
-        15% 关注度       — screener most_actives 注意力信号
-        15% 股息率       — 高股息多，截面排名
+    Weight allocation:
+        20% news sentiment  — NewsSentimentGenerator
+        20% VWAP momentum   — cross-sectional rank of (price - vwap) / vwap
+        15% volume surge    — cross-sectional rank of volume / avg_volume_20d
+        15% IV rank         — implied volatility percentile (short high IV, long low IV)
+        15% attention       — screener most_actives attention signal
+        15% dividend yield  — long high yield, cross-sectional rank
 
-    这是为Alpaca paper trading设计的旗舰策略，综合利用Alpaca提供的所有数据维度。
-    换手率控制较严（turnover_penalty=0.30），适合中频持仓（5-20天）。
+    This is the flagship strategy designed for Alpaca paper trading, drawing on every data
+    dimension Alpaca provides. Turnover control is fairly tight (turnover_penalty=0.30),
+    suiting medium-frequency holding periods (5-20 days).
     """
     name = "Alpaca旗舰复合"
     description = "六维因子复合: 情绪+VWAP+量+IV+关注度+股息"
@@ -618,23 +619,23 @@ class CompositeAlpacaStrategy(BaseStrategy):
         return pd.Series(0.0, index=universe)
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成Alpaca旗舰复合信号
+        """Generate the Alpaca flagship composite signal
 
         Parameters
         ----------
         data : dict
-            可包含以下键（缺失的维度自动权重为0）:
-            - 'prices': pd.DataFrame (date x symbol), 必须
-            - 'volume': pd.DataFrame (date x symbol), 成交量
+            May contain the following keys (missing dimensions are given zero weight):
+            - 'prices': pd.DataFrame (date x symbol), required
+            - 'volume': pd.DataFrame (date x symbol), trading volume
             - 'vwap': pd.DataFrame (date x symbol), VWAP
-            - 'news_by_symbol': dict[str, list], 新闻
-            - 'most_actives': list[dict], screener数据
+            - 'news_by_symbol': dict[str, list], news
+            - 'most_actives': list[dict], screener data
             - 'iv_rank': pd.Series (symbol -> iv_percentile)
             - 'div_yield': pd.Series (symbol -> dividend_yield)
 
         Returns
         -------
-        pd.DataFrame : (date x symbol) 信号矩阵
+        pd.DataFrame : (date x symbol) signal matrix
         """
         prices = data['prices']
         universe = list(prices.columns)

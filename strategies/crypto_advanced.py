@@ -1,25 +1,25 @@
-"""高级加密货币交易策略集合 — 基于Alpaca实时数据 + yfinance代理ETF的8种系统性策略
+"""Advanced cryptocurrency trading strategy suite — 8 systematic strategies built on Alpaca live data + yfinance proxy ETFs
 
-包含策略:
-    1. CryptoTrendEnsemble       — 多指标趋势集成 (SMA交叉 + MACD + Donchian突破, 多数投票)
-    2. CryptoMeanReversion       — 加密均值回归 (Z-score极端值, BTC基准 + 山寨币偏离)
-    3. BTCDominanceStrategy       — BTC统治力轮动 (BTC vs 山寨币相对强弱切换)
-    4. CryptoVolatilityHarvest   — 加密波动率收割 (BITO/GBTC隐含波动率溢价)
-    5. OnChainProxyStrategy      — 链上数据代理 (COIN/MARA/RIOT作为链上指标替代)
-    6. CryptoMomentumCrashFilter — 动量+崩盘过滤器 (20日动量, 单日>15%暴跌则清仓5日)
-    7. CrossAssetCryptoRegime    — 跨资产加密体制 (GLD/UUP/TLT宏观信号预测加密方向)
-    8. CryptoCalendarStrategy    — 加密日历效应 (周末效应 + 月末再平衡 + 减半周期)
+Strategies:
+    1. CryptoTrendEnsemble       — multi-indicator trend ensemble (SMA crossover + MACD + Donchian breakout, majority vote)
+    2. CryptoMeanReversion       — crypto mean reversion (Z-score extremes, BTC benchmark + altcoin deviation)
+    3. BTCDominanceStrategy       — BTC dominance rotation (BTC vs altcoin relative-strength switching)
+    4. CryptoVolatilityHarvest   — crypto volatility harvesting (BITO/GBTC implied volatility premium)
+    5. OnChainProxyStrategy      — on-chain data proxy (COIN/MARA/RIOT as substitutes for on-chain metrics)
+    6. CryptoMomentumCrashFilter — momentum + crash filter (20-day momentum, flat for 5 days after a single-day drop >15%)
+    7. CrossAssetCryptoRegime    — cross-asset crypto regime (GLD/UUP/TLT macro signals predict crypto direction)
+    8. CryptoCalendarStrategy    — crypto calendar effects (weekend effect + month-end rebalance + halving cycle)
 
-以及:
-    - run_crypto_backtest()          — 单策略回测
-    - run_all_crypto_backtests()     — 全策略汇总回测
+Plus:
+    - run_crypto_backtest()          — single-strategy backtest
+    - run_all_crypto_backtests()     — aggregate backtest across all strategies
 
-可用数据:
-    Alpaca实时加密: BTC/USD, ETH/USD, SOL/USD, DOGE/USD, AVAX/USD, LINK/USD, DOT/USD, ADA/USD
-    Alpaca加密订单簿: L2 买卖盘
-    yfinance代理ETF: BITO (BTC ETF), GBTC, ETHE, COIN, MARA, RIOT
-    yfinance直接: BTC-USD, ETH-USD, SOL-USD, DOGE-USD, AVAX-USD, LINK-USD, DOT-USD, ADA-USD
-    宏观资产: GLD, UUP, TLT, SPY, VIX (^VIX)
+Available data:
+    Alpaca live crypto: BTC/USD, ETH/USD, SOL/USD, DOGE/USD, AVAX/USD, LINK/USD, DOT/USD, ADA/USD
+    Alpaca crypto order book: L2 bid/ask
+    yfinance proxy ETFs: BITO (BTC ETF), GBTC, ETHE, COIN, MARA, RIOT
+    yfinance direct: BTC-USD, ETH-USD, SOL-USD, DOGE-USD, AVAX-USD, LINK-USD, DOT-USD, ADA-USD
+    Macro assets: GLD, UUP, TLT, SPY, VIX (^VIX)
 """
 
 import logging
@@ -186,7 +186,7 @@ def _bs_put_price(S: float, K: float, T: float, r: float,
 # =====================================================================
 
 class CryptoStrategyBase(ABC):
-    """加密货币策略基类"""
+    """Base class for cryptocurrency strategies"""
 
     name: str = "未命名加密策略"
     description: str = ""
@@ -194,19 +194,19 @@ class CryptoStrategyBase(ABC):
     @abstractmethod
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        生成交易信号。
+        Generate trading signals.
 
-        参数:
-            data: pd.DataFrame, columns = 代码, index = 日期, values = 收盘价
+        Parameters:
+            data: pd.DataFrame, columns = ticker, index = date, values = close
 
-        返回:
-            pd.DataFrame: columns = 代码, index = 日期, values = 持仓权重
-                          正值 = 做多, 负值 = 做空, 0 = 空仓
+        Returns:
+            pd.DataFrame: columns = ticker, index = date, values = position weight
+                          positive = long, negative = short, 0 = flat
         """
         raise NotImplementedError
 
     def get_params(self) -> dict:
-        """返回策略参数"""
+        """Return the strategy parameters"""
         return {'name': self.name, 'description': self.description}
 
 
@@ -215,17 +215,17 @@ class CryptoStrategyBase(ABC):
 # =====================================================================
 
 class CryptoTrendEnsemble(CryptoStrategyBase):
-    """多指标趋势集成策略
+    """Multi-indicator trend ensemble strategy
 
-    逻辑:
-        - 对每个加密货币同时计算3种趋势信号:
-          1) SMA交叉: 10日/20日/50日 短中长期均线方向
-          2) MACD: 快慢线交叉 + 柱状图方向
-          3) Donchian突破: 价格突破20日高点/低点
-        - 多数投票: 2/3以上看多 → 做多; 2/3以上看空 → 做空
-        - 在所有加密货币中选出信号最强的top_n, 等权配置
+    Logic:
+        - Compute 3 trend signals for each cryptocurrency:
+          1) SMA crossover: direction of the 10-day/20-day/50-day short-, medium- and long-term averages
+          2) MACD: fast/slow line crossover + histogram direction
+          3) Donchian breakout: price breaking the 20-day high/low
+        - Majority vote: 2/3 or more bullish -> long; 2/3 or more bearish -> short
+        - Select the top_n strongest signals across all cryptocurrencies, equally weighted
 
-    特点: 多信号集成减少假突破, 加密趋势性强时效果好
+    Notes: ensembling multiple signals reduces false breakouts and works well when crypto trends are strong
     """
 
     name = "加密趋势集成"
@@ -252,7 +252,7 @@ class CryptoTrendEnsemble(CryptoStrategyBase):
         self.top_n = top_n
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成趋势集成信号"""
+        """Generate trend ensemble signals"""
         crypto_cols = [c for c in data.columns if c in YF_CRYPTO_TICKERS]
         if not crypto_cols:
             crypto_cols = [c for c in data.columns
@@ -330,16 +330,16 @@ class CryptoTrendEnsemble(CryptoStrategyBase):
 # =====================================================================
 
 class CryptoMeanReversion(CryptoStrategyBase):
-    """加密均值回归策略
+    """Crypto mean reversion strategy
 
-    逻辑:
-        - 加密货币有显著的3-5日短期反转效应
-        - BTC信号: BTC相对20日SMA的Z-score
-        - 山寨币信号: 山寨币相对BTC趋势的Z-score偏离
-        - 进场: Z < -2 买入, Z > +2 卖出
-        - 利用加密市场过度反应的特性赚取反转收益
+    Logic:
+        - Cryptocurrencies exhibit a pronounced 3-5 day short-term reversal effect
+        - BTC signal: Z-score of BTC relative to its 20-day SMA
+        - Altcoin signal: Z-score of each altcoin's deviation from the BTC trend
+        - Entry: buy when Z < -2, sell when Z > +2
+        - Harvests reversal returns from the crypto market's tendency to overreact
 
-    风险: 趋势行情中可能亏损, 需严格止损
+    Risk: can lose money in trending markets; strict stop loss required
     """
 
     name = "加密均值回归"
@@ -369,7 +369,7 @@ class CryptoMeanReversion(CryptoStrategyBase):
         self.alt_weight = alt_weight
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成均值回归信号"""
+        """Generate mean reversion signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         btc_col = 'BTC-USD' if 'BTC-USD' in data.columns else None
@@ -438,18 +438,18 @@ class CryptoMeanReversion(CryptoStrategyBase):
 # =====================================================================
 
 class BTCDominanceStrategy(CryptoStrategyBase):
-    """BTC统治力轮动策略
+    """BTC dominance rotation strategy
 
-    逻辑:
-        - BTC统治力 = BTC市值 / 加密总市值
-        - 无法直接获取, 用代理: BTC vs 等权山寨币篮子的相对表现
-        - BTC跑赢山寨 (统治力上升): 做多BTC, 做空山寨币
-        - BTC跑输山寨 (统治力下降): 做多山寨币, 做空BTC
-        - 经典的加密货币轮动信号, 山寨季(alt season)时特别有效
+    Logic:
+        - BTC dominance = BTC market cap / total crypto market cap
+        - Not directly available, so use a proxy: BTC vs an equal-weighted altcoin basket
+        - BTC outperforming alts (rising dominance): long BTC, short altcoins
+        - BTC underperforming alts (falling dominance): long altcoins, short BTC
+        - A classic crypto rotation signal, especially effective during alt season
 
-    信号构建:
-        - 20日滚动BTC超额收益 vs 山寨币等权篮子
-        - 趋势方向: BTC超额收益的10日SMA方向
+    Signal construction:
+        - 20-day rolling BTC excess return vs the equal-weighted altcoin basket
+        - Trend direction: direction of the 10-day SMA of BTC excess return
     """
 
     name = "BTC统治力轮动"
@@ -476,7 +476,7 @@ class BTCDominanceStrategy(CryptoStrategyBase):
         self.alt_alloc = alt_alloc
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成BTC统治力信号"""
+        """Generate BTC dominance signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         btc_col = 'BTC-USD' if 'BTC-USD' in data.columns else None
@@ -553,21 +553,21 @@ class BTCDominanceStrategy(CryptoStrategyBase):
 # =====================================================================
 
 class CryptoVolatilityHarvest(CryptoStrategyBase):
-    """加密波动率收割策略
+    """Crypto volatility harvesting strategy
 
-    逻辑:
-        - 加密货币的隐含波动率(IV)长期高于已实现波动率(RV)
-        - 波动率溢价比股票更大, 卖期权策略理论收益更高
-        - 通过BITO/GBTC模拟: 估算隐含波动率, 卖出虚值strangle
-        - BS模型估算期权价值, 跟踪"波动率溢价"收益
+    Logic:
+        - Crypto implied volatility (IV) is persistently higher than realized volatility (RV)
+        - The volatility premium is larger than in equities, so option selling has higher theoretical returns
+        - Simulated via BITO/GBTC: estimate implied volatility and sell out-of-the-money strangles
+        - Value options with a Black-Scholes model and track the "volatility premium" return
 
-    实现:
-        - 用30日RV作为IV下限估计, IV = RV * 1.3 (加密溢价因子)
-        - 模拟卖出10% OTM strangle, 月度到期
-        - 目标: 捕获30-40%的波动率溢价
-        - 风控: 最大持仓10%, 亏损达到2倍权利金时止损
+    Implementation:
+        - Use 30-day RV as a lower bound for IV, IV = RV * 1.3 (crypto premium factor)
+        - Simulate selling a 10% OTM strangle with monthly expiry
+        - Target: capture 30-40% of the volatility premium
+        - Risk control: max position 10%, stop loss when the loss reaches 2x the premium collected
 
-    注意: 这是策略级别的模拟, 非实际期权交易
+    Note: this is a strategy-level simulation, not actual option trading
     """
 
     name = "加密波动率收割"
@@ -600,10 +600,10 @@ class CryptoVolatilityHarvest(CryptoStrategyBase):
         self.risk_free_rate = risk_free_rate
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成波动率收割信号
+        """Generate volatility harvesting signals
 
-        模拟strangle卖出策略: 每月卖出虚值call+put, 到期日平仓
-        信号以等价delta风险表示为现货仓位
+        Simulates a short strangle strategy: sell an OTM call + put each month and close at expiry.
+        The signal is expressed as the equivalent delta risk in spot position terms.
         """
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
@@ -708,21 +708,21 @@ class CryptoVolatilityHarvest(CryptoStrategyBase):
 # =====================================================================
 
 class OnChainProxyStrategy(CryptoStrategyBase):
-    """链上数据代理策略
+    """On-chain data proxy strategy
 
-    逻辑:
-        - 无法直接获取链上数据, 但可通过上市公司股票代理:
-          1) COIN (Coinbase): 交易所健康 = 交易量/收入代理
-             COIN领先BTC → 看多 (交易所看到资金流入)
-          2) MARA/RIOT (矿企): 挖矿盈利能力 = 算力代理
-             MARA领先BTC → 看多 (矿工在囤积)
-          3) BTC/COIN比率: 加密 vs 基础设施的背离
-             比率上升 → 加密强于基础设施, 可能回归
+    Logic:
+        - On-chain data is not directly available, but listed-equity proxies can stand in:
+          1) COIN (Coinbase): exchange health = proxy for volume/revenue
+             COIN leading BTC -> bullish (the exchange is seeing inflows)
+          2) MARA/RIOT (miners): mining profitability = proxy for hash rate
+             MARA leading BTC -> bullish (miners are accumulating)
+          3) BTC/COIN ratio: divergence between crypto and its infrastructure
+             Rising ratio -> crypto stronger than infrastructure, likely to revert
 
-    信号:
-        - COIN 20日动量 > BTC 20日动量: 看多BTC (+0.4)
-        - MARA 20日动量 > BTC 20日动量: 看多BTC (+0.3)
-        - BTC/COIN比率Z-score > 1: 做空BTC, 做多COIN (+0.3)
+    Signals:
+        - COIN 20-day momentum > BTC 20-day momentum: bullish BTC (+0.4)
+        - MARA 20-day momentum > BTC 20-day momentum: bullish BTC (+0.3)
+        - BTC/COIN ratio Z-score > 1: short BTC, long COIN (+0.3)
     """
 
     name = "链上代理"
@@ -752,7 +752,7 @@ class OnChainProxyStrategy(CryptoStrategyBase):
         self.ratio_weight = ratio_weight
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成链上代理信号"""
+        """Generate on-chain proxy signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         btc_col = 'BTC-USD' if 'BTC-USD' in data.columns else None
@@ -827,18 +827,18 @@ class OnChainProxyStrategy(CryptoStrategyBase):
 # =====================================================================
 
 class CryptoMomentumCrashFilter(CryptoStrategyBase):
-    """加密动量+崩盘过滤器策略
+    """Crypto momentum + crash filter strategy
 
-    逻辑:
-        - 加密货币20日动量非常有效, 但遭遇崩盘时会血亏
-        - 解决方案: 加入崩盘过滤器
-        - 若任一币种单日跌幅 > 15%, 全组合清仓5日
-        - 这个简单过滤器能显著提高Sharpe ratio
+    Logic:
+        - 20-day crypto momentum works very well, but suffers heavy losses in crashes
+        - Solution: add a crash filter
+        - If any coin falls more than 15% in a single day, flatten the whole portfolio for 5 days
+        - This simple filter markedly improves the Sharpe ratio
 
-    信号:
-        - 正常情况: 按20日动量排名做多top_n
-        - 崩盘触发: 全部清仓, 等待5个交易日
-        - 恢复后: 重新按动量排名入场
+    Signals:
+        - Normal conditions: go long the top_n by 20-day momentum ranking
+        - Crash triggered: flatten everything and wait 5 trading days
+        - After recovery: re-enter according to the momentum ranking
     """
 
     name = "动量崩盘过滤"
@@ -862,7 +862,7 @@ class CryptoMomentumCrashFilter(CryptoStrategyBase):
         self.top_n = top_n
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成动量+崩盘过滤信号"""
+        """Generate momentum + crash filter signals"""
         crypto_cols = [c for c in data.columns if c in YF_CRYPTO_TICKERS]
         if not crypto_cols:
             crypto_cols = [c for c in data.columns
@@ -926,18 +926,18 @@ class CryptoMomentumCrashFilter(CryptoStrategyBase):
 # =====================================================================
 
 class CrossAssetCryptoRegime(CryptoStrategyBase):
-    """跨资产加密体制识别策略
+    """Cross-asset crypto regime identification strategy
 
-    逻辑:
-        - 用传统资产预测加密货币方向:
-        - 黄金上涨 + 美元下跌 = 看多加密 (流动性/通胀对冲叙事)
-        - 利率上升(TLT下跌) + 美元上涨 = 看空加密 (紧缩)
-        - VIX上升 = 短期看空, 但随后转多 (避险需求→BTC避风港)
+    Logic:
+        - Use traditional assets to predict crypto direction:
+        - Gold up + dollar down = bullish crypto (liquidity / inflation-hedge narrative)
+        - Rates up (TLT down) + dollar up = bearish crypto (tightening)
+        - VIX up = bearish short term, then bullish (flight to safety -> BTC as a haven)
 
-    信号权重:
-        - GLD信号: 40% (黄金与BTC的"数字黄金"叙事高度相关)
-        - UUP信号: 30% (美元强弱是全球流动性指标)
-        - TLT信号: 30% (利率方向反映货币政策)
+    Signal weights:
+        - GLD signal: 40% (gold is highly correlated with BTC's "digital gold" narrative)
+        - UUP signal: 30% (dollar strength is a global liquidity indicator)
+        - TLT signal: 30% (rate direction reflects monetary policy)
     """
 
     name = "跨资产加密体制"
@@ -961,7 +961,7 @@ class CrossAssetCryptoRegime(CryptoStrategyBase):
         self.tlt_weight = tlt_weight
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成跨资产体制信号"""
+        """Generate cross-asset regime signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         btc_col = 'BTC-USD' if 'BTC-USD' in data.columns else None
@@ -1028,20 +1028,20 @@ class CrossAssetCryptoRegime(CryptoStrategyBase):
 # =====================================================================
 
 class CryptoCalendarStrategy(CryptoStrategyBase):
-    """加密日历效应策略
+    """Crypto calendar effect strategy
 
-    逻辑:
-        - 加密货币有已知的日历效应:
-          1) 周末效应: BTC倾向于周日晚间拉升 (散户周末买入)
-          2) 月末再平衡: 机构月末卖出压力 (基金再平衡)
-          3) 减半周期: 4年周期 (下次约2028年4月)
-             代理: 用200周SMA交叉判断长期周期位置
+    Logic:
+        - Cryptocurrencies show well-documented calendar effects:
+          1) Weekend effect: BTC tends to rally on Sunday evenings (retail weekend buying)
+          2) Month-end rebalance: institutional selling pressure at month end (fund rebalancing)
+          3) Halving cycle: 4-year cycle (next one around April 2028)
+             Proxy: use the 200-week SMA crossover to locate the long-term cycle position
 
-    信号:
-        - 周五收盘买入, 周一开盘卖出 (捕获周末效应)
-        - 月末最后3日减仓 (避开再平衡卖压)
-        - 价格 > 200周SMA: 长期看多 (减半后牛市)
-        - 价格 < 200周SMA: 长期看空 (减半前调整)
+    Signals:
+        - Buy at Friday close, sell at Monday open (capture the weekend effect)
+        - Reduce positions over the last 3 days of the month (avoid rebalancing selling pressure)
+        - Price > 200-week SMA: long-term bullish (post-halving bull market)
+        - Price < 200-week SMA: long-term bearish (pre-halving correction)
     """
 
     name = "加密日历效应"
@@ -1077,7 +1077,7 @@ class CryptoCalendarStrategy(CryptoStrategyBase):
         self.base_weight = base_weight
 
     def generate_signal(self, data: pd.DataFrame) -> pd.DataFrame:
-        """生成日历效应信号"""
+        """Generate calendar effect signals"""
         signals = pd.DataFrame(0.0, index=data.index, columns=data.columns)
 
         btc_col = 'BTC-USD' if 'BTC-USD' in data.columns else None
@@ -1166,19 +1166,19 @@ def run_crypto_backtest(
     initial_capital: float = 100_000.0,
     commission_bps: float = 10.0,
 ) -> dict:
-    """单策略回测
+    """Single-strategy backtest
 
-    参数:
-        strategy: 策略实例
-        data: 价格数据 (columns=代码, index=日期, values=收盘价)
-        initial_capital: 初始资金
-        commission_bps: 交易成本 (基点, 加密默认10bps)
+    Parameters:
+        strategy: strategy instance
+        data: price data (columns=ticker, index=date, values=close)
+        initial_capital: starting capital
+        commission_bps: transaction cost (basis points, crypto default 10bps)
 
-    返回:
+    Returns:
         dict: {
-            'name': 策略名,
-            'equity_curve': pd.Series (日度净值),
-            'returns': pd.Series (日度收益率),
+            'name': strategy name,
+            'equity_curve': pd.Series (daily net asset value),
+            'returns': pd.Series (daily returns),
             'sharpe': float,
             'cagr': float,
             'max_drawdown': float,
@@ -1262,15 +1262,15 @@ def run_all_crypto_backtests(
     end: str = '2026-03-28',
     initial_capital: float = 100_000.0,
 ) -> pd.DataFrame:
-    """运行全部8个加密策略回测并输出汇总表
+    """Run backtests for all 8 crypto strategies and print a summary table
 
-    参数:
-        start: 回测开始日期
-        end: 回测结束日期
-        initial_capital: 初始资金
+    Parameters:
+        start: backtest start date
+        end: backtest end date
+        initial_capital: starting capital
 
-    返回:
-        pd.DataFrame: 各策略绩效汇总 (Sharpe, CAGR%, MDD%, WR%, Calmar, Trades)
+    Returns:
+        pd.DataFrame: performance summary per strategy (Sharpe, CAGR%, MDD%, WR%, Calmar, Trades)
     """
     import yfinance as yf
 

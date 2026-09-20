@@ -1,7 +1,7 @@
-"""期权增强策略 — 基于 Alpaca 期权数据 (Greeks, IV, 期权流)
+"""Options-enhanced strategies — built on Alpaca options data (Greeks, IV, option flow)
 
-利用期权隐含波动率排名、偏度、Gamma 暴露等因子构建选股信号。
-所有策略继承 BaseStrategy，接受标的列表和 AlpacaDataLoader 实例。
+Builds stock selection signals from factors such as implied volatility rank, skew, and gamma exposure.
+All strategies inherit from BaseStrategy and take an instrument list plus an AlpacaDataLoader instance.
 """
 import logging
 from datetime import date, timedelta
@@ -76,13 +76,13 @@ def _fetch_chain_and_price(loader, symbol: str, sig_gen: OptionsSignalGenerator)
 # =====================================================================
 
 class IVRankStrategy(BaseStrategy):
-    """隐含波动率排名策略
+    """Implied volatility rank strategy
 
-    对每个标的获取 ATM 期权隐含波动率，与历史 IV 做滚动百分位排名。
-    低 IV 排名 = 期权便宜 = 看多 (波动率均值回复)；
-    高 IV 排名 = 期权昂贵 = 看空或不确定。
+    Fetches ATM implied volatility for each instrument and ranks it as a rolling percentile of its own history.
+    Low IV rank = cheap options = bullish (volatility mean reversion);
+    high IV rank = expensive options = bearish or uncertain.
 
-    信号 = -iv_rank，买入低 IV 排名的股票，卖出高 IV 排名的股票。
+    Signal = -iv_rank: buy low IV rank names, sell high IV rank names.
     """
 
     name = "IV Rank (期权)"
@@ -146,17 +146,17 @@ class IVRankStrategy(BaseStrategy):
         return pd.Series(dtype=float)
 
     def generate_signal(self, data: dict = None) -> pd.Series:
-        """生成 IV 排名信号
+        """Generate the IV rank signal
 
         Parameters
         ----------
         data : dict, optional
-            保持与 BaseStrategy 接口兼容；本策略通过 loader 自行获取数据
+            Kept for BaseStrategy interface compatibility; this strategy fetches its own data via the loader
 
         Returns
         -------
         pd.Series
-            index=symbol, 值越高越看多 (低IV排名)
+            index=symbol, higher values are more bullish (low IV rank)
         """
         records = {}
 
@@ -199,14 +199,14 @@ class IVRankStrategy(BaseStrategy):
 # =====================================================================
 
 class SkewAlphaStrategy(BaseStrategy):
-    """隐含波动率偏度策略
+    """Implied volatility skew strategy
 
-    看跌期权 IV 相对看涨期权 IV 的偏度 (skew)。
-    高 put skew = 市场定价下行风险 = 逆向看多信号。
+    Skew is put IV relative to call IV.
+    High put skew = the market is pricing downside risk = a contrarian bullish signal.
 
-    利用 OptionsSignalGenerator.iv_skew() 计算 25-delta 偏度。
-    iv_skew() 已返回 -skew (正偏度看空)，本策略取其负值做逆向因子:
-    正 skew (看跌贵) => 逆向看多。
+    Uses OptionsSignalGenerator.iv_skew() to compute 25-delta skew.
+    iv_skew() already returns -skew (positive skew is bearish), so this strategy negates it into a contrarian factor:
+    positive skew (expensive puts) => contrarian bullish.
     """
 
     name = "Skew Alpha (期权偏度)"
@@ -234,12 +234,12 @@ class SkewAlphaStrategy(BaseStrategy):
         self.sig_gen = OptionsSignalGenerator()
 
     def generate_signal(self, data: dict = None) -> pd.Series:
-        """生成偏度 Alpha 信号
+        """Generate the skew alpha signal
 
         Returns
         -------
         pd.Series
-            index=symbol, 正值 = 看多 (看跌期权相对昂贵，逆向信号)
+            index=symbol, positive = bullish (puts relatively expensive, a contrarian signal)
         """
         records = {}
 
@@ -272,13 +272,13 @@ class SkewAlphaStrategy(BaseStrategy):
 # =====================================================================
 
 class GammaExposureStrategy(BaseStrategy):
-    """Gamma 暴露策略
+    """Gamma exposure strategy
 
-    期权做市商 Gamma 暴露会导致标的被"钉住" (pin) 在高 Gamma 行权价附近。
-    距离最大 Gamma 行权价越近 => 预期波动越低 => 越稳定 (适合持有)。
-    距离越远 => 预期波动越高 => 不确定性大。
+    Market-maker gamma exposure tends to "pin" the underlying near high-gamma strikes.
+    Closer to the max-gamma strike => lower expected move => more stable (good to hold).
+    Further away => higher expected move => greater uncertainty.
 
-    信号: 与最大 Gamma 行权价的距离取负 (近 = 高信号 = 看多/稳定)。
+    Signal: the negated distance to the max-gamma strike (close = high signal = bullish/stable).
     """
 
     name = "Gamma Exposure (Gamma暴露)"
@@ -362,12 +362,12 @@ class GammaExposureStrategy(BaseStrategy):
         return None
 
     def generate_signal(self, data: dict = None) -> pd.Series:
-        """生成 Gamma 暴露信号
+        """Generate the gamma exposure signal
 
         Returns
         -------
         pd.Series
-            index=symbol, 正值 = 股价接近高 Gamma 行权价 (更稳定)
+            index=symbol, positive = price is close to a high-gamma strike (more stable)
         """
         records = {}
 
@@ -404,14 +404,14 @@ class GammaExposureStrategy(BaseStrategy):
 # =====================================================================
 
 class CompositeOptionsStrategy(BaseStrategy):
-    """复合期权策略
+    """Composite options strategy
 
-    混合三个子因子:
-      - 40% IV 排名 (低排名看多)
-      - 30% 偏度 (高 put skew 逆向看多)
-      - 30% Put/Call 比率 (高 PC 比逆向看多)
+    Blends three sub-factors:
+      - 40% IV rank (low rank is bullish)
+      - 30% skew (high put skew is contrarian bullish)
+      - 30% put/call ratio (high P/C ratio is contrarian bullish)
 
-    使用 OptionsSignalGenerator 计算底层因子。
+    Underlying factors are computed with OptionsSignalGenerator.
     """
 
     name = "Composite Options (复合期权)"
@@ -460,12 +460,12 @@ class CompositeOptionsStrategy(BaseStrategy):
         )
 
     def generate_signal(self, data: dict = None) -> pd.Series:
-        """生成复合期权信号
+        """Generate the composite options signal
 
         Returns
         -------
         pd.Series
-            index=symbol, 值在 [-1, 1] 之间, 正值看多
+            index=symbol, values in [-1, 1], positive is bullish
         """
         raw_records = {}
 
@@ -521,7 +521,7 @@ class CompositeOptionsStrategy(BaseStrategy):
         return _rank_to_signal(composite)
 
     def get_params(self) -> dict:
-        """返回策略参数"""
+        """Return the strategy parameters"""
         params = super().get_params()
         params.update({
             'w_iv_rank': self.w_iv_rank,

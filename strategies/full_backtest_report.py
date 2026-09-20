@@ -1,13 +1,13 @@
-"""全策略回测排名报告
+"""Full strategy backtest ranking report
 
-扫描 strategies/ 目录下的所有策略，使用模拟数据运行完整回测，
-汇总指标并按 Sharpe 排名输出。
+Scans every strategy under strategies/, runs a full backtest on simulated data,
+aggregates the metrics, and ranks them by Sharpe.
 
-指标: Sharpe, Sortino, MaxDD, 年化收益, 胜率, Calmar, 月均换手率
-评级: A/B/C/D/F (基于 Sharpe)
-输出: 控制台表格 + CSV + Markdown
+Metrics: Sharpe, Sortino, MaxDD, annualized return, win rate, Calmar, average monthly turnover
+Grades: A/B/C/D/F (based on Sharpe)
+Output: console table + CSV + Markdown
 
-作者: KuanQuant
+Author: KuanQuant
 """
 
 from __future__ import annotations
@@ -254,14 +254,14 @@ def _discover_strategy_classes(filepath: str) -> List[Tuple[str, str]]:
 
 class StrategyRanker:
     """
-    全策略回测排名器。
+    Full strategy backtest ranker.
 
-    功能:
-        1. 扫描 strategies/ 目录发现所有策略
-        2. 用模拟数据对每个策略运行事件驱动回测
-        3. 计算 Sharpe, Sortino, MaxDD, 年化收益, 胜率, Calmar, 月均换手率
-        4. 按 Sharpe 排序并评级
-        5. 输出汇总表到控制台 / CSV / Markdown
+    Features:
+        1. Scans the strategies/ directory to discover every strategy
+        2. Runs an event-driven backtest on simulated data for each strategy
+        3. Computes Sharpe, Sortino, MaxDD, annualized return, win rate, Calmar, average monthly turnover
+        4. Sorts by Sharpe and assigns grades
+        5. Writes the summary table to console / CSV / Markdown
     """
 
     def __init__(
@@ -296,10 +296,10 @@ class StrategyRanker:
 
     def discover_strategies(self) -> List[Dict[str, str]]:
         """
-        扫描 strategies/ 目录，列出所有策略。
+        Scan the strategies/ directory and list every strategy.
 
-        返回:
-            [{'file': 文件名, 'class': 类名, 'base': 基类名, 'style': 信号风格}, ...]
+        Returns:
+            [{'file': filename, 'class': class name, 'base': base class name, 'style': signal style}, ...]
         """
         strategies = []
         strat_dir = pathlib.Path(self.strategies_dir)
@@ -336,16 +336,16 @@ class StrategyRanker:
         short_pct: float = 0.15,
     ) -> Dict[str, Any]:
         """
-        回测单个策略 (使用模拟信号)。
+        Backtest a single strategy (using simulated signals).
 
-        参数:
-            strategy_name: 策略名称 (用于日志)
-            style: 信号风格
-            seed_offset: 种子偏移量 (让不同策略有不同信号)
-            long_n / short_n: 多头/空头持仓数
-            long_pct / short_pct: 多头/空头权重
-        返回:
-            包含回测结果和指标的字典
+        Parameters:
+            strategy_name: strategy name (used for logging)
+            style: signal style
+            seed_offset: seed offset (so different strategies get different signals)
+            long_n / short_n: number of long/short positions
+            long_pct / short_pct: long/short weights
+        Returns:
+            A dict holding the backtest results and metrics
         """
         data = self._data
 
@@ -392,10 +392,10 @@ class StrategyRanker:
 
     def backtest_all(self) -> List[Dict[str, Any]]:
         """
-        回测所有已发现的策略。
+        Backtest every discovered strategy.
 
-        返回:
-            结果列表，每个元素包含 strategy info + metrics
+        Returns:
+            A list of results, each element holding the strategy info + metrics
         """
         discovered = self.discover_strategies()
         print(f"\n{'='*70}")
@@ -512,17 +512,17 @@ class StrategyRanker:
     @staticmethod
     def rank_strategies(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        按 Sharpe 降序排列并加上评级。
+        Sort by Sharpe descending and assign grades.
 
-        评级标准:
-            A: Sharpe >= 1.0  (优秀)
-            B: 0.5 <= Sharpe < 1.0 (良好)
-            C: 0.0 <= Sharpe < 0.5 (及格)
-            D: -0.5 <= Sharpe < 0.0 (较差)
-            F: Sharpe < -0.5 (很差)
+        Grading scale:
+            A: Sharpe >= 1.0  (excellent)
+            B: 0.5 <= Sharpe < 1.0 (good)
+            C: 0.0 <= Sharpe < 0.5 (pass)
+            D: -0.5 <= Sharpe < 0.0 (poor)
+            F: Sharpe < -0.5 (very poor)
 
-        返回:
-            排序后的列表，每个元素多了 'rank' 和 'grade' 字段
+        Returns:
+            The sorted list, with each element gaining 'rank' and 'grade' fields
         """
         # 按 Sharpe 降序
         sorted_results = sorted(
@@ -554,9 +554,13 @@ class StrategyRanker:
     @staticmethod
     def generate_summary_table(results: List[Dict[str, Any]]) -> pd.DataFrame:
         """
-        生成排名汇总 DataFrame。
+        Build the ranking summary DataFrame.
 
-        列: 排名, 策略, 评级, Sharpe, Sortino, MaxDD, CAGR, 胜率, Calmar, 月均换手
+        Column keys are the literal strings used in the code, several of
+        which are Chinese: '排名' (rank), '策略' (strategy), '评级' (grade),
+        'Sharpe', 'Sortino', 'MaxDD', 'CAGR', '胜率' (win rate), 'Calmar',
+        '月均换手' (avg monthly turnover), '总收益' (total return),
+        '终值' (final value), '月数' (months).
         """
         rows = []
         for r in results:
@@ -584,11 +588,11 @@ class StrategyRanker:
     @staticmethod
     def export_csv(results: List[Dict[str, Any]], path: str = 'reports/strategy_ranking.csv'):
         """
-        导出排名结果到 CSV 文件。
+        Export the ranking results to a CSV file.
 
-        参数:
-            results: rank_strategies() 的返回值
-            path: 输出路径
+        Parameters:
+            results: the return value of rank_strategies()
+            path: output path
         """
         df = StrategyRanker.generate_summary_table(results)
         os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
@@ -604,11 +608,11 @@ class StrategyRanker:
         path: str = 'reports/strategy_ranking.md',
     ):
         """
-        导出排名结果到 Markdown 表格。
+        Export the ranking results to a Markdown table.
 
-        参数:
-            results: rank_strategies() 的返回值
-            path: 输出路径
+        Parameters:
+            results: the return value of rank_strategies()
+            path: output path
         """
         df = StrategyRanker.generate_summary_table(results)
 
@@ -653,7 +657,7 @@ class StrategyRanker:
 
     @staticmethod
     def print_ranking(results: List[Dict[str, Any]]):
-        """在控制台打印排名表 (格式化对齐)。"""
+        """Print the ranking table to the console (formatted and aligned)."""
         print(f"\n{'='*110}")
         print(f"  全策略排名 (按 Sharpe 降序)")
         print(f"{'='*110}")
@@ -710,7 +714,7 @@ class StrategyRanker:
 # ═══════════════════════════════════════════════════════════════════════
 
 def main():
-    """主函数: 发现策略 -> 回测 -> 排名 -> 输出"""
+    """Main entry point: discover strategies -> backtest -> rank -> output"""
     sys.stdout.reconfigure(encoding='utf-8')
 
     # 输出目录

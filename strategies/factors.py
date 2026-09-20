@@ -1,10 +1,10 @@
-"""独立因子策略 — 每个类封装一个学术因子"""
+"""Standalone factor strategies — one class per academic factor"""
 from qf.strategy import BaseStrategy
 from qf.signals import build_factor_signal, build_signal
 
 
 class MomentumStrategy(BaseStrategy):
-    """多时间框架动量 — Jegadeesh & Titman (1993)"""
+    """Multi-timeframe momentum — Jegadeesh & Titman (1993)"""
     name = "Momentum 12-1"
     description = "Multi-timeframe momentum (3/6/12M), vol-adjusted"
 
@@ -13,7 +13,7 @@ class MomentumStrategy(BaseStrategy):
 
 
 class AccelerationStrategy(BaseStrategy):
-    """动量加速度 — Gettleman & Marks (2006)"""
+    """Momentum acceleration — Gettleman & Marks (2006)"""
     name = "Momentum Acceleration"
     description = "Recent vs older 3M momentum difference"
 
@@ -22,7 +22,7 @@ class AccelerationStrategy(BaseStrategy):
 
 
 class High52Strategy(BaseStrategy):
-    """52周新高接近度 — George & Hwang (2004)"""
+    """Proximity to the 52-week high — George & Hwang (2004)"""
     name = "52-Week High"
     description = "Proximity to 12-month high price"
 
@@ -31,7 +31,7 @@ class High52Strategy(BaseStrategy):
 
 
 class BookToMarketStrategy(BaseStrategy):
-    """账面市值比 — Fama & French (1992)"""
+    """Book-to-market — Fama & French (1992)"""
     name = "Book-to-Market"
     description = "Value factor: high book equity / market equity"
 
@@ -40,7 +40,7 @@ class BookToMarketStrategy(BaseStrategy):
 
 
 class EarningsPriceStrategy(BaseStrategy):
-    """盈利价格比 — Basu (1977)"""
+    """Earnings-to-price — Basu (1977)"""
     name = "Earnings-to-Price"
     description = "Value factor: high net income / market cap"
 
@@ -49,7 +49,7 @@ class EarningsPriceStrategy(BaseStrategy):
 
 
 class ROEStrategy(BaseStrategy):
-    """净资产收益率 — Hou, Xue, Zhang (2015)"""
+    """Return on equity — Hou, Xue, Zhang (2015)"""
     name = "Return on Equity"
     description = "Profitability factor: high ROE"
 
@@ -58,7 +58,7 @@ class ROEStrategy(BaseStrategy):
 
 
 class GPAStrategy(BaseStrategy):
-    """毛利资产比 — Novy-Marx (2013)"""
+    """Gross profits-to-assets — Novy-Marx (2013)"""
     name = "Gross Profitability"
     description = "Quality factor: high gross profit / total assets"
 
@@ -67,7 +67,7 @@ class GPAStrategy(BaseStrategy):
 
 
 class AssetGrowthStrategy(BaseStrategy):
-    """资产增长 — Cooper, Gulen, Schill (2008)"""
+    """Asset growth — Cooper, Gulen, Schill (2008)"""
     name = "Asset Growth (Inv.)"
     description = "Investment anomaly: low asset growth = higher returns"
 
@@ -76,7 +76,7 @@ class AssetGrowthStrategy(BaseStrategy):
 
 
 class IVolStrategy(BaseStrategy):
-    """特质波动率 — Ang et al. (2006)"""
+    """Idiosyncratic volatility — Ang et al. (2006)"""
     name = "Idiosyncratic Volatility"
     description = "Low IVOL anomaly: low residual vol = higher returns"
 
@@ -85,7 +85,7 @@ class IVolStrategy(BaseStrategy):
 
 
 class FF5AlphaStrategy(BaseStrategy):
-    """FF5 滚动Alpha"""
+    """FF5 rolling alpha"""
     name = "FF5 Rolling Alpha"
     description = "36M rolling alpha from Fama-French 5-factor regression"
 
@@ -94,7 +94,7 @@ class FF5AlphaStrategy(BaseStrategy):
 
 
 class CompositeStrategy(BaseStrategy):
-    """复合动量+质量策略（原始默认）"""
+    """Composite momentum + quality strategy (the original default)"""
     name = "Composite Mom+Quality"
     description = "50% momentum + 20% accel + 20% quality + 10% vol"
 
@@ -122,7 +122,7 @@ STRATEGY_REGISTRY = {
 
 
 def get_strategy(factor_id):
-    """按ID获取策略实例"""
+    """Get a strategy instance by ID"""
     if factor_id not in STRATEGY_REGISTRY:
         raise ValueError(f"未知策略: {factor_id}. 可用: {list(STRATEGY_REGISTRY.keys())}")
     return STRATEGY_REGISTRY[factor_id]()

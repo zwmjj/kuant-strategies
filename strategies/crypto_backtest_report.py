@@ -1,17 +1,17 @@
-"""加密货币全策略回测报告 — 汇总所有 crypto 策略并生成排名报告
+"""Full crypto strategy backtest report — aggregates every crypto strategy and produces a ranking report
 
-功能:
-    1. 汇总 strategy_crypto.py 中的 5 个策略 + mean_reversion_crypto.py 的布林带策略
-    2. 用 Ornstein-Uhlenbeck 过程模拟 BTC/ETH/SOL 180天日线数据
-    3. 对每个策略跑回测, 计算 Sharpe / MaxDD / 年化收益 / 胜率
-    4. 生成汇总排名表 (按 Sharpe 排序)
-    5. 支持 quantstats HTML 报告输出
+Features:
+    1. Aggregates the 5 strategies in strategy_crypto.py + the Bollinger band strategy from mean_reversion_crypto.py
+    2. Simulates 180 days of BTC/ETH/SOL daily data with an Ornstein-Uhlenbeck process
+    3. Backtests each strategy, computing Sharpe / MaxDD / annualized return / win rate
+    4. Produces a summary ranking table (sorted by Sharpe)
+    5. Supports quantstats HTML report output
 
-用法:
+Usage:
     python strategies/crypto_backtest_report.py
     python strategies/crypto_backtest_report.py --html reports/crypto_report.html
 
-作者: KuanQuant
+Author: KuanQuant
 """
 
 from __future__ import annotations
@@ -95,16 +95,16 @@ def _ou_process(
 
 def generate_simulated_data(n_days: int = 180, seed: int = 42) -> dict:
     """
-    生成 BTC/ETH/SOL 模拟日线数据。
+    Generate simulated BTC/ETH/SOL daily data.
 
-    使用 Ornstein-Uhlenbeck 过程模拟带均值回归特征的价格序列,
-    同时叠加微弱趋势成分, 使数据更接近真实市场。
+    Uses an Ornstein-Uhlenbeck process to simulate mean-reverting price series,
+    overlaid with a weak trend component so the data more closely resembles real markets.
 
-    参数:
-        n_days: 模拟天数
-        seed: 随机种子 (保证可复现)
+    Parameters:
+        n_days: number of days to simulate
+        seed: random seed (for reproducibility)
 
-    返回:
+    Returns:
         dict — {symbol: DataFrame(open, high, low, close, volume)}
     """
     # 结束日期为今天, 起始日期往前推 n_days
@@ -157,20 +157,20 @@ def generate_simulated_data(n_days: int = 180, seed: int = 42) -> dict:
 
 def get_all_strategies(symbols: list[str] | None = None) -> list[CryptoBaseStrategy]:
     """
-    汇总所有加密货币策略实例。
+    Aggregate every crypto strategy instance.
 
-    包含:
-        1. 加密动量策略 (CryptoMomentumStrategy)
-        2. 加密均值回归策略 (CryptoMeanReversionStrategy)
-        3. 加密趋势跟踪策略 (CryptoTrendFollowStrategy)
-        4. 加密BTC Beta策略 (CryptoBTCBetaStrategy)
-        5. 加密波动率目标策略 (CryptoVolTargetStrategy)
-        6. 布林带均值回归策略 (BollingerMeanReversionCrypto)
+    Includes:
+        1. Crypto momentum strategy (CryptoMomentumStrategy)
+        2. Crypto mean reversion strategy (CryptoMeanReversionStrategy)
+        3. Crypto trend following strategy (CryptoTrendFollowStrategy)
+        4. Crypto BTC beta strategy (CryptoBTCBetaStrategy)
+        5. Crypto volatility targeting strategy (CryptoVolTargetStrategy)
+        6. Bollinger band mean reversion strategy (BollingerMeanReversionCrypto)
 
-    参数:
-        symbols: 交易对列表, 默认 ['BTC/USD', 'ETH/USD', 'SOL/USD']
+    Parameters:
+        symbols: list of trading pairs, defaults to ['BTC/USD', 'ETH/USD', 'SOL/USD']
 
-    返回:
+    Returns:
         list[CryptoBaseStrategy]
     """
     syms = symbols or ['BTC/USD', 'ETH/USD', 'SOL/USD']
@@ -221,17 +221,22 @@ def run_all_backtests(
     verbose: bool = True,
 ) -> pd.DataFrame:
     """
-    对所有策略运行回测, 返回汇总结果 DataFrame。
+    Run backtests for every strategy and return a summary DataFrame.
 
-    参数:
-        data_dict: 模拟或真实市场数据
-        strategies: 策略列表, 默认使用 get_all_strategies()
-        initial_capital: 初始资金
-        verbose: 是否打印过程信息
+    Parameters:
+        data_dict: simulated or real market data
+        strategies: strategy list, defaults to get_all_strategies()
+        initial_capital: starting capital
+        verbose: whether to print progress information
 
-    返回:
-        pd.DataFrame — 列: 策略名称, Sharpe, 最大回撤, 年化收益, 胜率, 总收益
-                        按 Sharpe 降序排列
+    Returns:
+        pd.DataFrame — sorted by Sharpe descending. Column keys are the
+                        literal strings used in the code, several of which are
+                        Chinese: '策略名称' (strategy name), 'Sharpe',
+                        '年化收益' (annualized return), '总收益' (total return),
+                        '最大回撤' (max drawdown), '胜率' (win rate),
+                        '回测天数' (backtest days). The index is named
+                        '排名' (rank).
     """
     if strategies is None:
         strategies = get_all_strategies()
@@ -297,10 +302,10 @@ def run_all_backtests(
 
 def print_summary_table(df: pd.DataFrame) -> None:
     """
-    在终端打印汇总排名表。
+    Print the summary ranking table to the terminal.
 
-    参数:
-        df: run_all_backtests() 返回的 DataFrame
+    Parameters:
+        df: the DataFrame returned by run_all_backtests()
     """
     # 显示列 (排除内部数据列)
     display_cols = ['策略名称', 'Sharpe', '年化收益', '总收益', '最大回撤', '胜率', '回测天数']
@@ -323,12 +328,12 @@ def generate_quantstats_reports(
     combined_html: str | None = None,
 ) -> None:
     """
-    为每个策略生成 quantstats HTML 报告。
+    Generate a quantstats HTML report for each strategy.
 
-    参数:
-        df: run_all_backtests() 返回的 DataFrame
-        output_dir: 单策略报告输出目录 (每个策略一个HTML), 为 None 则跳过
-        combined_html: 合并报告输出路径, 为 None 则跳过
+    Parameters:
+        df: the DataFrame returned by run_all_backtests()
+        output_dir: output directory for per-strategy reports (one HTML each), skipped if None
+        combined_html: output path for the combined report, skipped if None
     """
     if not _HAS_QS_ADAPTER:
         print("\n[警告] quantstats 未安装, 跳过 HTML 报告生成。")
@@ -402,7 +407,7 @@ def generate_quantstats_reports(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def main():
-    """主函数: 解析参数, 运行回测, 输出报告。"""
+    """Main entry point: parse arguments, run the backtests, and write the reports."""
     parser = argparse.ArgumentParser(
         description="加密货币全策略回测报告生成器"
     )

@@ -1,12 +1,13 @@
-"""A股日内动量策略 — 开盘30分钟动量选股 + 量价确认 + 日内止损
+"""A-share intraday momentum strategy — first-30-minute momentum stock selection + volume/price confirmation + intraday stop loss
 
-A股特殊规则提醒:
-- T+1交易制度: 当日买入不能当日卖出，需次日才能卖出
-  本策略模拟T+0环境（如融券/可转债/ETF），实盘A股需改为隔日平仓
-- 涨跌停限制: 主板 ±10%，创业板/科创板 ±20%（本策略默认10%）
-- 集合竞价: 9:15-9:25 集合竞价，9:25 产生开盘价，9:30 开始连续竞价
-- 收盘集合竞价: 14:57-15:00 收盘集合竞价，不能撤单
-- 最小交易单位: 100股（1手），科创板/创业板可1股
+Notes on A-share market rules:
+- T+1 settlement: shares bought today cannot be sold the same day, only from the next session
+  This strategy simulates a T+0 environment (e.g. securities lending / convertible bonds / ETFs);
+  live A-share trading requires closing out on the following day instead
+- Price limits: +/-10% on the main board, +/-20% on ChiNext/STAR (this strategy defaults to 10%)
+- Opening call auction: 9:15-9:25, the open is set at 9:25, continuous trading starts at 9:30
+- Closing call auction: 14:57-15:00, orders cannot be cancelled
+- Minimum trade size: 100 shares (1 lot); STAR/ChiNext allow 1 share
 """
 
 import numpy as np
@@ -20,16 +21,16 @@ from datetime import time as dtime
 
 class ChinaIntradayMomentum:
     """
-    日内动量策略（A股）
+    Intraday momentum strategy (A-shares)
 
-    核心逻辑:
-    1. 开盘后30分钟（9:30 ~ 10:00）计算个股涨幅，选最强N只
-    2. 成交量确认: 前30分钟量 > 5日平均前30分钟量 × 1.5
-    3. 涨跌停过滤: 排除已涨停/跌停的股票（无法买入/卖出）
-    4. 均线过滤: 只做股价在20日均线之上的（趋势确认）
-    5. 等权分配，最多10只，单票 ≤ 10%
-    6. 日内回撤 3% 止损
-    7. 收盘前5分钟（14:55）全部平仓
+    Core logic:
+    1. In the first 30 minutes after the open (9:30 ~ 10:00), compute each stock's gain and pick the N strongest
+    2. Volume confirmation: first-30-minute volume > 1.5x the 5-day average first-30-minute volume
+    3. Price limit filter: exclude stocks already limit-up/limit-down (cannot be bought/sold)
+    4. Moving average filter: only trade stocks above their 20-day moving average (trend confirmation)
+    5. Equal weighting, at most 10 names, each capped at 10%
+    6. 3% intraday drawdown stop loss
+    7. Close all positions 5 minutes before the close (14:55)
     """
 
     name = "A股日内动量"
@@ -199,21 +200,21 @@ class ChinaIntradayMomentum:
         daily_data: pd.DataFrame,
         date: str,
     ) -> list[str]:
-        """单日选股逻辑
+        """Single-day stock selection logic
 
         Parameters
         ----------
         minute_data : DataFrame
-            分钟级行情
+            Minute-level market data
         daily_data : DataFrame
-            日线行情（含历史）
+            Daily market data (including history)
         date : str
-            交易日期
+            Trading date
 
         Returns
         -------
         list[str]
-            选中的股票代码列表
+            Tickers of the selected stocks
         """
         # 1) 开盘30分钟动量
         momentum = self._calc_morning_momentum(minute_data, date)
@@ -274,24 +275,24 @@ class ChinaIntradayMomentum:
         start: str,
         end: str,
     ) -> pd.Series:
-        """简化版日内回测
+        """Simplified intraday backtest
 
         Parameters
         ----------
         minute_data : DataFrame
-            分钟级行情, columns: [datetime, code, open, high, low, close, volume]
-            datetime 为 pd.Timestamp，包含日期和时间
+            Minute-level market data, columns: [datetime, code, open, high, low, close, volume]
+            datetime is a pd.Timestamp carrying both date and time
         daily_data : DataFrame
-            日线行情, columns: [date, code, open, high, low, close, volume]
+            Daily market data, columns: [date, code, open, high, low, close, volume]
         start : str
-            回测开始日期 'YYYY-MM-DD'
+            Backtest start date 'YYYY-MM-DD'
         end : str
-            回测结束日期 'YYYY-MM-DD'
+            Backtest end date 'YYYY-MM-DD'
 
         Returns
         -------
         Series
-            每日收益率序列
+            Series of daily returns
         """
         self.daily_returns = []
         self.trade_log = []
@@ -420,12 +421,17 @@ class ChinaIntradayMomentum:
     # ─────────────────────────────────────────────────────────────
 
     def generate_report(self) -> dict:
-        """输出回测统计
+        """Print backtest statistics
 
         Returns
         -------
         dict
-            包含胜率、日均收益、最大回撤、Sharpe等指标
+            Metrics keyed by the literal Chinese strings used in the code:
+            '回测天数' (backtest days), '有交易天数' (days with trades),
+            '胜率' (win rate), '日均收益' (average daily return),
+            '年化收益' (annualized return), '年化波动率' (annualized vol),
+            '最大回撤' (max drawdown), 'Sharpe比率' (Sharpe ratio),
+            '累计收益' (cumulative return), '总交易笔数' (total trades).
         """
         if not self.daily_returns:
             print("尚未运行回测，请先调用 backtest_intraday()")

@@ -1,11 +1,11 @@
-"""机器学习策略 — 利用已有因子信号作为特征，预测未来收益并排序选股
+"""Machine learning strategies — use existing factor signals as features to predict forward returns and rank instruments
 
-策略列表:
-    1. LinearFactorStrategy   — Ridge回归，扩展窗口训练
-    2. RandomForestStrategy    — 随机森林，含特征重要性追踪
-    3. GradientBoostStrategy   — LightGBM梯度提升，早停法
-    4. EnsembleStrategy        — 三模型等权集成
-    5. FeatureSelectionStrategy — 滚动IC选因子 + Ridge回归
+Strategy list:
+    1. LinearFactorStrategy   — Ridge regression, expanding-window training
+    2. RandomForestStrategy    — random forest, with feature-importance tracking
+    3. GradientBoostStrategy   — LightGBM gradient boosting, with early stopping
+    4. EnsembleStrategy        — equal-weight ensemble of the three models
+    5. FeatureSelectionStrategy — rolling-IC factor selection + Ridge regression
 """
 
 import warnings
@@ -184,10 +184,10 @@ def _cross_sectional_rank_series(series: pd.Series, dates: pd.Index) -> pd.Serie
 # ═══════════════════════════════════════════════════════════════════
 
 class LinearFactorStrategy(BaseStrategy):
-    """Ridge回归因子策略 — 利用全部因子信号预测未来10日截面收益排名
+    """Ridge regression factor strategy — predicts the 10-day forward cross-sectional return ranking from the full factor set
 
-    训练方式: 扩展窗口（至少252天），每60天重新训练。
-    预测信号: 模型输出的预测排名值，截面排名后输出。
+    Training: expanding window (at least 252 days), retrained every 60 days.
+    Signal: the model's predicted ranking, emitted after cross-sectional ranking.
     """
     name = "ML Linear (Ridge)"
     description = "Ridge回归：全因子 → 预测10日收益排名"
@@ -199,17 +199,17 @@ class LinearFactorStrategy(BaseStrategy):
     alpha: float = 1.0
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成Ridge回归预测信号
+        """Generate the Ridge regression prediction signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'volume'；可选 'open', 'high', 'low'
+            Must contain 'close', 'volume'; optionally 'open', 'high', 'low'
 
         Returns
         -------
         pd.DataFrame
-            预测信号 (date x symbol)，值域 [-1, 1]
+            Prediction signal (date x symbol), in [-1, 1]
         """
         close = data['close']
         factors = _compute_all_factors(data)
@@ -274,10 +274,10 @@ class LinearFactorStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class RandomForestStrategy(BaseStrategy):
-    """随机森林因子策略 — 非线性因子交互捕捉
+    """Random forest factor strategy — captures nonlinear factor interactions
 
-    模型: RandomForestRegressor (max_depth=5, n_estimators=100)
-    含特征重要性追踪，可通过 feature_importances_ 属性查看。
+    Model: RandomForestRegressor (max_depth=5, n_estimators=100)
+    Tracks feature importances, available through the feature_importances_ attribute.
     """
     name = "ML Random Forest"
     description = "随机森林：全因子非线性交互 → 预测10日收益排名"
@@ -294,17 +294,17 @@ class RandomForestStrategy(BaseStrategy):
         self._feature_names = None
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成随机森林预测信号
+        """Generate the random forest prediction signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'volume'
+            Must contain 'close', 'volume'
 
         Returns
         -------
         pd.DataFrame
-            预测信号 (date x symbol)
+            Prediction signal (date x symbol)
         """
         close = data['close']
         factors = _compute_all_factors(data)
@@ -367,12 +367,12 @@ class RandomForestStrategy(BaseStrategy):
         return signal_df
 
     def get_importance_summary(self) -> pd.DataFrame:
-        """获取特征重要性汇总表
+        """Get the feature importance summary table
 
         Returns
         -------
         pd.DataFrame
-            每次训练的特征重要性，index=日期，columns=因子名
+            Feature importances from each training run; index = date, columns = factor name
         """
         if not self.feature_importances_:
             return pd.DataFrame()
@@ -386,10 +386,10 @@ class RandomForestStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class GradientBoostStrategy(BaseStrategy):
-    """LightGBM梯度提升策略 — 全因子+滞后收益特征
+    """LightGBM gradient boosting strategy — all factors plus lagged return features
 
-    使用早停法 (early stopping) 防止过拟合。
-    训练数据最后20%作为验证集。
+    Uses early stopping to guard against overfitting.
+    The last 20% of the training data serves as the validation set.
     """
     name = "ML GradientBoost (LGBM)"
     description = "LightGBM：全因子+滞后收益 → 预测10日收益排名，含早停"
@@ -412,17 +412,17 @@ class GradientBoostStrategy(BaseStrategy):
         self._feature_names = None
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成LightGBM预测信号
+        """Generate the LightGBM prediction signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'volume'
+            Must contain 'close', 'volume'
 
         Returns
         -------
         pd.DataFrame
-            预测信号 (date x symbol)
+            Prediction signal (date x symbol)
         """
         close = data['close']
         factors = _compute_all_factors(data)
@@ -505,12 +505,12 @@ class GradientBoostStrategy(BaseStrategy):
         return signal_df
 
     def get_importance_summary(self) -> pd.DataFrame:
-        """获取LightGBM特征重要性汇总表
+        """Get the LightGBM feature importance summary table
 
         Returns
         -------
         pd.DataFrame
-            每次训练的特征重要性 (split-based)，index=日期，columns=因子名
+            Feature importances from each training run (split-based); index = date, columns = factor name
         """
         if not self.feature_importances_:
             return pd.DataFrame()
@@ -524,10 +524,10 @@ class GradientBoostStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class EnsembleStrategy(BaseStrategy):
-    """三模型等权集成策略 — Ridge + RandomForest + LightGBM
+    """Equal-weight three-model ensemble — Ridge + RandomForest + LightGBM
 
-    每个子模型独立训练并预测，最终取平均预测值的截面排名。
-    比单一模型更稳健。
+    Each sub-model is trained and predicts independently; the final signal is the cross-sectional
+    ranking of the averaged predictions. More robust than any single model.
     """
     name = "ML Ensemble (3-Model)"
     description = "Ridge + RF + LGBM 等权集成，稳健预测"
@@ -540,19 +540,20 @@ class EnsembleStrategy(BaseStrategy):
             self._lgbm = GradientBoostStrategy()
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成集成预测信号
+        """Generate the ensemble prediction signal
 
-        将三个子模型（或两个，若无LightGBM）的信号等权平均后截面排名。
+        Averages the signals of the three sub-models (or two, when LightGBM is unavailable) at
+        equal weight, then ranks them cross-sectionally.
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'volume'
+            Must contain 'close', 'volume'
 
         Returns
         -------
         pd.DataFrame
-            集成信号 (date x symbol)
+            Ensemble signal (date x symbol)
         """
         sg = DailySignalGenerator
 
@@ -579,12 +580,12 @@ class EnsembleStrategy(BaseStrategy):
 
     @property
     def feature_importances_rf(self) -> pd.DataFrame:
-        """随机森林特征重要性"""
+        """Random forest feature importances"""
         return self._rf.get_importance_summary()
 
     @property
     def feature_importances_lgbm(self) -> pd.DataFrame:
-        """LightGBM特征重要性"""
+        """LightGBM feature importances"""
         if self._lgbm is not None:
             return self._lgbm.get_importance_summary()
         return pd.DataFrame()
@@ -595,13 +596,14 @@ class EnsembleStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class FeatureSelectionStrategy(BaseStrategy):
-    """自适应因子选择策略 — 按滚动IC选择最佳因子后Ridge回归
+    """Adaptive factor selection strategy — selects the best factors by rolling IC, then fits a Ridge regression
 
-    步骤:
-        1. 计算每个因子过去252天与未来10日收益的截面IC (信息系数)
-        2. 选取IC绝对值最高的前5个因子
-        3. 用选定因子训练Ridge回归
-        4. 每60天重新选因子+重新训练
+    Steps:
+        1. Compute each factor's cross-sectional IC (information coefficient) against the 10-day
+           forward return over the trailing 252 days
+        2. Keep the 5 factors with the highest absolute IC
+        3. Train a Ridge regression on the selected factors
+        4. Reselect factors and retrain every 60 days
     """
     name = "ML Feature Selection (IC)"
     description = "滚动IC选Top-5因子 + Ridge回归，自适应特征选择"
@@ -617,17 +619,17 @@ class FeatureSelectionStrategy(BaseStrategy):
         self.selected_features_history = {}  # date -> list of selected features
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成自适应因子选择预测信号
+        """Generate the adaptive factor selection prediction signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'volume'
+            Must contain 'close', 'volume'
 
         Returns
         -------
         pd.DataFrame
-            预测信号 (date x symbol)
+            Prediction signal (date x symbol)
         """
         close = data['close']
         factors = _compute_all_factors(data)
@@ -711,12 +713,12 @@ class FeatureSelectionStrategy(BaseStrategy):
         return signal_df
 
     def get_selection_history(self) -> pd.DataFrame:
-        """获取因子选择历史
+        """Get the factor selection history
 
         Returns
         -------
         pd.DataFrame
-            每次重新选择时选定的因子列表
+            The factors selected at each reselection
         """
         if not self.selected_features_history:
             return pd.DataFrame()
@@ -764,16 +766,16 @@ def _print_importance_summary(strategy, label: str):
 
 def run_ml_backtests(start: str = '2022-01-01', end: str = '2025-12-31',
                      tickers: list[str] | None = None):
-    """下载数据，运行全部ML策略，打印对比结果
+    """Download the data, run every ML strategy and print the comparison
 
     Parameters
     ----------
     start : str
-        起始日期 YYYY-MM-DD
+        Start date YYYY-MM-DD
     end : str
-        结束日期 YYYY-MM-DD
+        End date YYYY-MM-DD
     tickers : list[str] or None
-        股票列表，默认使用标普500大盘股子集
+        Instrument list; defaults to a subset of S&P 500 large caps
     """
     import yfinance as yf
 

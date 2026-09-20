@@ -1,18 +1,18 @@
 """
-最大夏普策略 — 目标 Sharpe 1.50+
+Maximum Sharpe strategy — target Sharpe 1.50+
 ================================
-核心思路: 夏普1.5不靠神奇信号, 靠风险管理。
+Core idea: a Sharpe of 1.5 does not come from a magic signal, it comes from risk management.
   Sharpe = mean(excess_return) / std(excess_return) * sqrt(12)
-  从1.19到1.50需要: 提高月收益26% 或 降低月波动21% 或组合。
+  Going from 1.19 to 1.50 requires: raising monthly return by 26%, cutting monthly volatility by 21%, or a mix.
 
-七层优化:
-  1. 激进波动率目标 (6%年化, 而非10%) — 直接压缩波动率40%
-  2. 更紧回撤控制 (8%/15%/20% 触发阈值)
-  3. 多信号Alpha叠加 (regime+orthogonal+interaction, 非相关)
-  4. 高换手惩罚 (0.50) — 减少交易摩擦
-  5. 集中持仓 (多10空5) — 更高信念度
-  6. 市场状态过滤 — 高波/崩盘时大幅减仓
-  7. 质量过滤 — 仅交易大市值低波动股票
+Seven layers of optimization:
+  1. Aggressive volatility target (6% annualized instead of 10%) — cuts volatility by 40% directly
+  2. Tighter drawdown control (8%/15%/20% trigger thresholds)
+  3. Stacked multi-signal alpha (regime+orthogonal+interaction, uncorrelated)
+  4. High turnover penalty (0.50) — reduces trading friction
+  5. Concentrated positions (10 long, 5 short) — higher conviction
+  6. Market regime filter — cut exposure sharply in high-volatility/crash regimes
+  7. Quality filter — trade only large-cap, low-volatility stocks
 """
 import numpy as np
 import pandas as pd
@@ -22,19 +22,19 @@ from qf.optimizer import build_combo_signal, vol_target_scale, drawdown_scale
 
 class MaxSharpeStrategy(BaseStrategy):
     """
-    最大夏普策略 — 通过风险管理将Sharpe从1.19提升至1.50+
+    Maximum Sharpe strategy — lifting Sharpe from 1.19 to 1.50+ through risk management
 
-    信号层:
-      - 50% regime_blend (择时四因子, risk_parity)
-      - 30% orthogonal_blend (正交化三因子, 剥离FF5暴露 -> 纯Alpha)
-      - 20% interaction_blend (交互确认信号)
+    Signal layer:
+      - 50% regime_blend (four timing factors, risk_parity)
+      - 30% orthogonal_blend (three orthogonalized factors, FF5 exposure stripped out -> pure alpha)
+      - 20% interaction_blend (interaction confirmation signal)
 
-    风控层:
-      - 波动率目标 6%年化 (激进压缩波动)
-      - 回撤控制 8%/15%/20% 阈值 (更早减仓)
-      - 市场状态过滤 (高波/崩盘大幅减仓)
-      - 质量过滤 (大市值 + 低波动率)
-      - 换手惩罚 0.50 (减少不必要交易)
+    Risk control layer:
+      - Volatility target of 6% annualized (aggressive volatility compression)
+      - Drawdown control at 8%/15%/20% thresholds (de-risk earlier)
+      - Market regime filter (cut exposure sharply in high-volatility/crash regimes)
+      - Quality filter (large cap + low volatility)
+      - Turnover penalty of 0.50 (avoid unnecessary trading)
     """
     name = "MaxSharpe (目标1.50+)"
     description = "七层优化: 激进vol目标+紧回撤+多信号叠加+集中持仓+市场过滤+质量过滤"
@@ -96,23 +96,23 @@ class MaxSharpeStrategy(BaseStrategy):
 
     def generate_signal(self, data):
         """
-        生成最大夏普信号 — 三层Alpha叠加 + 质量过滤
+        Generate the maximum Sharpe signal — three-layer alpha stack + quality filter
 
-        流程:
-          1. 构建三路信号 (regime / orthogonal / interaction)
-          2. 按权重叠加: 50% / 30% / 20%
-          3. 质量过滤: 仅保留大市值 + 低波动率股票
-          4. 重新截面排名
+        Steps:
+          1. Build the three signal streams (regime / orthogonal / interaction)
+          2. Stack them by weight: 50% / 30% / 20%
+          3. Quality filter: keep only large-cap, low-volatility stocks
+          4. Re-rank cross-sectionally
 
         Parameters
         ----------
         data : dict
-            prepare_data() 返回的数据字典
+            Data dictionary returned by prepare_data()
 
         Returns
         -------
         pd.DataFrame
-            信号矩阵 (date x permno), 值越高越看多
+            Signal matrix (date x permno); higher values are more bullish
         """
         # ── 步骤1: 构建三路非相关信号 ──
         signals = {}
@@ -242,22 +242,22 @@ class MaxSharpeStrategy(BaseStrategy):
 
     def compute_market_regime_scale(self, data):
         """
-        市场状态过滤 — 通过市场波动率/趋势判断减仓
+        Market regime filter — de-risk based on market volatility/trend
 
-        规则:
-          - 高波动状态 (波动率 > 均值 + 1std): 仓位缩至50%
-          - 崩盘状态 (3个月跌幅 > 10%): 仓位缩至30%
-          - 正常状态: 仓位100%
+        Rules:
+          - High-volatility regime (volatility > mean + 1std): scale positions to 50%
+          - Crash regime (3-month decline > 10%): scale positions to 30%
+          - Normal regime: positions at 100%
 
         Parameters
         ----------
         data : dict
-            数据字典, 需要 'spy_ret' 键 (市场基准收益)
+            Data dictionary; requires the 'spy_ret' key (market benchmark returns)
 
         Returns
         -------
         float
-            市场状态仓位缩放因子 (0.30 ~ 1.00)
+            Market regime position scaling factor (0.30 ~ 1.00)
         """
         if 'spy_ret' not in data:
             return 1.0
@@ -290,22 +290,22 @@ class MaxSharpeStrategy(BaseStrategy):
 
     def compute_drawdown_scale(self, pv_history):
         """
-        更紧的回撤控制 — 更早减仓, 保护资本
+        Tighter drawdown control — de-risk earlier to protect capital
 
-        阈值:
-          - 8%回撤 -> 70% (默认10%->80%)
-          - 15%回撤 -> 40% (默认20%->50%)
-          - 20%回撤 -> 20% (默认25%->25%)
+        Thresholds:
+          - 8% drawdown -> 70% (default 10%->80%)
+          - 15% drawdown -> 40% (default 20%->50%)
+          - 20% drawdown -> 20% (default 25%->25%)
 
         Parameters
         ----------
         pv_history : list
-            组合净值历史
+            Portfolio net asset value history
 
         Returns
         -------
         float
-            回撤仓位缩放因子 (0.20 ~ 1.00)
+            Drawdown position scaling factor (0.20 ~ 1.00)
         """
         if len(pv_history) < 3:
             return 1.0
@@ -324,23 +324,23 @@ class MaxSharpeStrategy(BaseStrategy):
 
     def compute_position_scale(self, returns_history=None, pv_history=None, data=None):
         """
-        综合仓位缩放 — 三层叠加
+        Combined position scaling — three layers stacked
 
-        缩放因子 = vol_target_scale × drawdown_scale × market_regime_scale
+        Scaling factor = vol_target_scale x drawdown_scale x market_regime_scale
 
         Parameters
         ----------
         returns_history : list
-            月收益率历史
+            Monthly return history
         pv_history : list
-            组合净值历史
+            Portfolio net asset value history
         data : dict, optional
-            数据字典 (用于市场状态判断)
+            Data dictionary (used for the market regime assessment)
 
         Returns
         -------
         float
-            综合仓位缩放因子
+            Combined position scaling factor
         """
         ret_hist = returns_history or self._returns_history
         pv_hist = pv_history or self._pv_history
@@ -362,7 +362,7 @@ class MaxSharpeStrategy(BaseStrategy):
         return v_scale * d_scale * m_scale
 
     def get_params(self) -> dict:
-        """返回策略全部参数"""
+        """Return all strategy parameters"""
         params = super().get_params()
         params.update({
             'target_vol': self.target_vol,
@@ -379,25 +379,25 @@ class MaxSharpeStrategy(BaseStrategy):
 
 def run_max_sharpe_backtest(data, verbose=True):
     """
-    运行最大夏普回测 — 完整流程
+    Run the maximum Sharpe backtest — full pipeline
 
-    流程:
-      1. 构建三层叠加信号
-      2. 运行事件驱动回测 (激进vol目标 + 紧回撤控制 + 市场过滤)
-      3. 打印结果
-      4. 返回 (BacktestResult, metrics_dict)
+    Steps:
+      1. Build the three-layer stacked signal
+      2. Run the event-driven backtest (aggressive vol target + tight drawdown control + market filter)
+      3. Print the results
+      4. Return (BacktestResult, metrics_dict)
 
     Parameters
     ----------
     data : dict
-        prepare_data() 返回的数据字典
+        Data dictionary returned by prepare_data()
     verbose : bool
-        是否打印详细信息
+        Whether to print detailed information
 
     Returns
     -------
     tuple
-        (BacktestResult, dict) — 回测结果对象和指标字典
+        (BacktestResult, dict) — the backtest result object and the metrics dictionary
     """
     from qf.backtest import DataHandler, Portfolio, BacktestResult
     from qf.costs import ExecutionHandler, SignalEvent

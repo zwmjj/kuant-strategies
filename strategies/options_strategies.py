@@ -1,18 +1,18 @@
-"""期权交易策略集合 — 基于 Alpaca 期权数据的综合策略模块
+"""Options trading strategies — a comprehensive strategy module built on Alpaca options data
 
-包含8种期权策略 + 组合管理器 + 扫描入口函数:
-    1. CoveredCallStrategy        — 备兑看涨 (持股+卖Call)
-    2. CashSecuredPutStrategy     — 现金担保卖Put
-    3. IVCrushStrategy            — 财报IV碾压 (卖跨式/宽跨式)
-    4. VolatilityArbitrageStrategy — 波动率套利 (IV vs RV)
-    5. PutSpreadIncomeStrategy    — 牛市看跌价差收入
-    6. IronCondorStrategy         — 铁鹰策略 (双向价差)
-    7. ProtectivePutStrategy      — 保护性看跌 (尾部对冲)
-    8. GammaScalpingStrategy      — Gamma剥头皮
+Contains 8 options strategies + a portfolio manager + a scan entry point:
+    1. CoveredCallStrategy        — covered call (hold stock + sell calls)
+    2. CashSecuredPutStrategy     — cash-secured put selling
+    3. IVCrushStrategy            — earnings IV crush (sell straddles/strangles)
+    4. VolatilityArbitrageStrategy — volatility arbitrage (IV vs RV)
+    5. PutSpreadIncomeStrategy    — bull put spread income
+    6. IronCondorStrategy         — iron condor (two-sided spreads)
+    7. ProtectivePutStrategy      — protective put (tail hedge)
+    8. GammaScalpingStrategy      — gamma scalping
 
-以及:
-    - OptionsPortfolioManager     — 多策略组合管理 (Greeks汇总/仓位限制/P&L场景)
-    - run_options_scan()          — 全策略扫描并按Sharpe排序
+Plus:
+    - OptionsPortfolioManager     — multi-strategy portfolio management (Greeks aggregation / position limits / P&L scenarios)
+    - run_options_scan()          — scan every strategy and rank by Sharpe
 """
 
 import logging
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TradeRecommendation:
-    """单笔期权交易建议"""
+    """A single option trade recommendation"""
     strategy: str           # 策略名称
     underlying: str         # 标的股票
     action: str             # 'sell_call', 'buy_put', 'sell_put', 'buy_call' 等
@@ -58,7 +58,7 @@ class TradeRecommendation:
 
 @dataclass
 class OrderDict:
-    """Alpaca 执行订单格式"""
+    """Alpaca execution order format"""
     symbol: str             # 期权合约符号
     qty: int                # 数量
     side: str               # 'buy' / 'sell'
@@ -69,7 +69,7 @@ class OrderDict:
     legs: List = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        """转为 Alpaca API 字典"""
+        """Convert to an Alpaca API dict"""
         d = {
             'symbol': self.symbol,
             'qty': self.qty,
@@ -248,7 +248,7 @@ def _build_contract_symbol(underlying: str, expiry: str,
 # =====================================================================
 
 class OptionsStrategy(ABC):
-    """期权策略基类 — 所有期权策略实现此接口"""
+    """Base class for options strategies — implemented by every options strategy"""
 
     name: str = "未命名期权策略"
     description: str = ""
@@ -283,16 +283,16 @@ class OptionsStrategy(ABC):
 
     @abstractmethod
     def scan(self) -> List[TradeRecommendation]:
-        """扫描并返回交易建议列表"""
+        """Scan and return a list of trade recommendations"""
         raise NotImplementedError
 
     @abstractmethod
     def calc_metrics(self, trade: TradeRecommendation) -> TradeRecommendation:
-        """计算交易的预期收益/最大亏损/盈利概率"""
+        """Compute a trade's expected return / max loss / probability of profit"""
         raise NotImplementedError
 
     def generate_orders(self) -> List[dict]:
-        """生成 Alpaca 可执行订单列表"""
+        """Generate the list of executable Alpaca orders"""
         trades = self.scan()
         orders = []
         for t in trades:
@@ -315,12 +315,12 @@ class OptionsStrategy(ABC):
 # =====================================================================
 
 class CoveredCallStrategy(OptionsStrategy):
-    """备兑看涨策略 — 持有股票 + 卖出虚值Call收取权利金
+    """Covered call strategy — hold the stock and sell OTM calls to collect premium
 
-    选股逻辑: 高IV排名 (权利金贵) + 正动量 (不怕卖飞)
-    合约选择: 5-10% OTM, 30-45 DTE
-    滚仓: DTE < 7 或 delta > 0.7 时滚动到下一周期
-    预期: 降低波动率, 稳定收入, Sharpe提升
+    Selection: high IV rank (expensive premium) + positive momentum (little regret if called away)
+    Contract choice: 5-10% OTM, 30-45 DTE
+    Rolling: roll to the next cycle when DTE < 7 or delta > 0.7
+    Expectation: lower volatility, steady income, higher Sharpe
     """
 
     name = "备兑看涨策略"
@@ -336,7 +336,7 @@ class CoveredCallStrategy(OptionsStrategy):
     contracts_per_100: int = 1  # 每100股卖1手
 
     def scan(self) -> List[TradeRecommendation]:
-        """扫描所有标的, 筛选适合备兑看涨的机会"""
+        """Scan all instruments and filter for covered call opportunities"""
         self._load_data()
         trades = []
 
@@ -398,7 +398,7 @@ class CoveredCallStrategy(OptionsStrategy):
         return trades
 
     def calc_metrics(self, trade: TradeRecommendation) -> TradeRecommendation:
-        """计算备兑看涨的预期收益、最大亏损、盈利概率"""
+        """Compute expected return, max loss, and probability of profit for a covered call"""
         S = trade.underlying_price
         K = trade.strike
         prem = trade.premium
@@ -424,7 +424,7 @@ class CoveredCallStrategy(OptionsStrategy):
         return trade
 
     def should_roll(self, current_dte: int, current_delta: float) -> bool:
-        """判断是否需要滚仓"""
+        """Decide whether the position should be rolled"""
         return current_dte < self.roll_dte or abs(current_delta) > self.roll_delta
 
 
@@ -433,12 +433,12 @@ class CoveredCallStrategy(OptionsStrategy):
 # =====================================================================
 
 class CashSecuredPutStrategy(OptionsStrategy):
-    """现金担保卖Put策略 — 卖出虚值Put收取权利金, 如被行权则以折扣价买入
+    """Cash-secured put strategy — sell OTM puts to collect premium, buying the stock at a discount if assigned
 
-    选股逻辑: 低IV排名 (权利金便宜 = 标的被低估) + 高质量 (GPA/ROE)
-    合约选择: 5-10% OTM Put, 30-45 DTE
-    管理: 50%利润平仓, 7DTE滚仓
-    预期: 收入 + 以折扣价买入优质股票
+    Selection: low IV rank (cheap premium = underpriced instrument) + high quality (GPA/ROE)
+    Contract choice: 5-10% OTM puts, 30-45 DTE
+    Management: close at 50% of max profit, roll at 7 DTE
+    Expectation: income plus buying quality names at a discount
     """
 
     name = "现金担保卖Put策略"
@@ -452,7 +452,7 @@ class CashSecuredPutStrategy(OptionsStrategy):
     roll_dte: int = 7
 
     def scan(self) -> List[TradeRecommendation]:
-        """扫描适合卖Put的标的"""
+        """Scan for instruments suitable for put selling"""
         self._load_data()
         trades = []
 
@@ -513,7 +513,7 @@ class CashSecuredPutStrategy(OptionsStrategy):
         return trades
 
     def calc_metrics(self, trade: TradeRecommendation) -> TradeRecommendation:
-        """计算现金担保卖Put的指标"""
+        """Compute cash-secured put metrics"""
         K = trade.strike
         prem = trade.premium
         T = trade.dte / 365.0
@@ -539,7 +539,7 @@ class CashSecuredPutStrategy(OptionsStrategy):
         return trade
 
     def should_close(self, current_premium: float, entry_premium: float) -> bool:
-        """判断是否应该平仓 (50%利润)"""
+        """Decide whether the position should be closed (50% of max profit)"""
         profit_pct = 1.0 - (current_premium / entry_premium)
         return profit_pct >= self.profit_take
 
@@ -549,12 +549,12 @@ class CashSecuredPutStrategy(OptionsStrategy):
 # =====================================================================
 
 class IVCrushStrategy(OptionsStrategy):
-    """财报IV碾压策略 — 利用财报前IV泵升, 财报后IV骤降获利
+    """Earnings IV crush strategy — profit from the pre-earnings IV ramp and the post-earnings IV collapse
 
-    原理: 财报前IV通常被高估 (市场过度定价不确定性),
-          实际波动幅度 < 隐含波动幅度 约75%的时间
-    操作: 财报前卖出跨式/宽跨式, 财报后IV碾压时买回
-    风控: 最大亏损 = 2x 收取的权利金
+    Rationale: IV is usually overpriced ahead of earnings (the market overprices uncertainty);
+               the realized move is smaller than the implied move roughly 75% of the time
+    Execution: sell straddles/strangles before earnings, buy them back once IV crushes afterwards
+    Risk control: max loss = 2x the premium collected
     """
 
     name = "财报IV碾压策略"
@@ -568,7 +568,7 @@ class IVCrushStrategy(OptionsStrategy):
     max_loss_multiplier: float = 2.0  # 止损 = 2x权利金
 
     def scan(self) -> List[TradeRecommendation]:
-        """扫描高IV (疑似临近财报) 标的"""
+        """Scan for high-IV instruments (likely approaching earnings)"""
         self._load_data()
         trades = []
 
@@ -658,7 +658,7 @@ class IVCrushStrategy(OptionsStrategy):
         return trades
 
     def calc_metrics(self, trade: TradeRecommendation) -> TradeRecommendation:
-        """计算IV碾压策略指标"""
+        """Compute IV crush strategy metrics"""
         prem = trade.premium
         S = trade.underlying_price
         call_K = trade.strike
@@ -686,7 +686,7 @@ class IVCrushStrategy(OptionsStrategy):
         return trade
 
     def generate_orders(self) -> List[dict]:
-        """生成宽跨式两腿订单"""
+        """Generate the two strangle leg orders"""
         trades = self.scan()
         orders = []
         for t in trades:
@@ -713,12 +713,12 @@ class IVCrushStrategy(OptionsStrategy):
 # =====================================================================
 
 class VolatilityArbitrageStrategy(OptionsStrategy):
-    """波动率套利策略 — 交易IV与RV之间的价差
+    """Volatility arbitrage strategy — trade the spread between IV and RV
 
-    核心指标: IV/RV 比率
-        - IV/RV > 1.3: IV高估 → 卖期权 (IV会均值回归下降)
-        - IV/RV < 0.7: IV低估 → 买期权 (IV会均值回归上升)
-    Delta对冲: 隔离纯波动率交易 (消除方向性风险)
+    Key metric: the IV/RV ratio
+        - IV/RV > 1.3: IV overpriced → sell options (IV mean-reverts lower)
+        - IV/RV < 0.7: IV underpriced → buy options (IV mean-reverts higher)
+    Delta hedging: isolates the pure volatility trade (removes directional risk)
     """
 
     name = "波动率套利策略"
@@ -731,7 +731,7 @@ class VolatilityArbitrageStrategy(OptionsStrategy):
     hedge_frequency: str = 'daily'  # delta对冲频率
 
     def scan(self) -> List[TradeRecommendation]:
-        """扫描IV/RV偏离的标的"""
+        """Scan for instruments with IV/RV dislocations"""
         self._load_data()
         trades = []
 
@@ -831,7 +831,7 @@ class VolatilityArbitrageStrategy(OptionsStrategy):
         return trades
 
     def calc_metrics(self, trade: TradeRecommendation) -> TradeRecommendation:
-        """计算波动率套利策略指标"""
+        """Compute volatility arbitrage strategy metrics"""
         prem = trade.premium
         S = trade.underlying_price
         T = trade.dte / 365.0
@@ -864,11 +864,11 @@ class VolatilityArbitrageStrategy(OptionsStrategy):
 # =====================================================================
 
 class PutSpreadIncomeStrategy(OptionsStrategy):
-    """牛市看跌价差收入策略 — 卖高行权Put + 买低行权Put (限定亏损)
+    """Bull put spread income strategy — sell a higher-strike put + buy a lower-strike put (capped loss)
 
-    选股: 强支撑 (20日低点) + 正动量
-    目标: 30-delta 短腿 (约70%盈利概率)
-    风控: 最大亏损 = 价差宽度 - 权利金
+    Selection: strong support (20-day low) + positive momentum
+    Target: 30-delta short leg (about 70% probability of profit)
+    Risk control: max loss = spread width - premium
     """
 
     name = "牛市看跌价差收入策略"
@@ -880,7 +880,7 @@ class PutSpreadIncomeStrategy(OptionsStrategy):
     dte_max: int = 45
 
     def scan(self) -> List[TradeRecommendation]:
-        """扫描看跌价差机会"""
+        """Scan for put spread opportunities"""
         self._load_data()
         trades = []
 
@@ -967,7 +967,7 @@ class PutSpreadIncomeStrategy(OptionsStrategy):
         return trades
 
     def calc_metrics(self, trade: TradeRecommendation) -> TradeRecommendation:
-        """计算牛市看跌价差指标"""
+        """Compute bull put spread metrics"""
         net_prem = trade.premium
         short_K = trade.strike
         long_K = trade.greeks.get('long_strike', short_K * 0.95)
@@ -991,7 +991,7 @@ class PutSpreadIncomeStrategy(OptionsStrategy):
         return trade
 
     def generate_orders(self) -> List[dict]:
-        """生成价差两腿订单"""
+        """Generate the two spread leg orders"""
         trades = self.scan()
         orders = []
         for t in trades:
@@ -1018,12 +1018,12 @@ class PutSpreadIncomeStrategy(OptionsStrategy):
 # =====================================================================
 
 class IronCondorStrategy(OptionsStrategy):
-    """铁鹰策略 — 同时卖出OTM Put价差 + OTM Call价差
+    """Iron condor strategy — sell an OTM put spread and an OTM call spread at the same time
 
-    适用: 低波动横盘市场 (低vol-of-vol, 窄布林带)
-    结构: 卖OTM Put + 买更OTM Put + 卖OTM Call + 买更OTM Call
-    宽度: 每边10-15% OTM
-    预期: 横盘市场高胜率
+    Suited to: low-volatility, range-bound markets (low vol-of-vol, narrow Bollinger bands)
+    Structure: sell OTM put + buy further OTM put + sell OTM call + buy further OTM call
+    Width: 10-15% OTM on each side
+    Expectation: high win rate in range-bound markets
     """
 
     name = "铁鹰策略"
@@ -1037,7 +1037,7 @@ class IronCondorStrategy(OptionsStrategy):
     dte_max: int = 45
 
     def scan(self) -> List[TradeRecommendation]:
-        """扫描适合铁鹰的横盘标的"""
+        """Scan for range-bound instruments suitable for iron condors"""
         self._load_data()
         trades = []
 
@@ -1159,7 +1159,7 @@ class IronCondorStrategy(OptionsStrategy):
         return trades
 
     def calc_metrics(self, trade: TradeRecommendation) -> TradeRecommendation:
-        """计算铁鹰策略指标"""
+        """Compute iron condor strategy metrics"""
         net_prem = trade.premium
         sp_K = trade.greeks.get('short_put_strike', 0)
         lp_K = trade.greeks.get('long_put_strike', 0)
@@ -1188,7 +1188,7 @@ class IronCondorStrategy(OptionsStrategy):
         return trade
 
     def generate_orders(self) -> List[dict]:
-        """生成铁鹰4腿订单"""
+        """Generate the four iron condor leg orders"""
         trades = self.scan()
         orders = []
         for t in trades:
@@ -1229,13 +1229,13 @@ class IronCondorStrategy(OptionsStrategy):
 # =====================================================================
 
 class ProtectivePutStrategy(OptionsStrategy):
-    """保护性看跌策略 — 买入深度OTM Put作为组合保险
+    """Protective put strategy — buy deep OTM puts as portfolio insurance
 
-    目的: 防范尾部风险 (-10%以上回撤)
-    合约: 15-20% OTM, 60-90 DTE
-    成本: 约0.5-1%组合价值/季度
-    选择: SPY Put 或 高beta个股Put
-    对冲比率: delta加权覆盖-10%回撤
+    Purpose: guard against tail risk (drawdowns beyond -10%)
+    Contracts: 15-20% OTM, 60-90 DTE
+    Cost: roughly 0.5-1% of portfolio value per quarter
+    Choice: SPY puts or puts on high-beta single names
+    Hedge ratio: delta-weighted to cover a -10% drawdown
     """
 
     name = "保护性看跌策略"
@@ -1250,7 +1250,7 @@ class ProtectivePutStrategy(OptionsStrategy):
     target_drawdown: float = -0.10     # 目标对冲 -10% 回撤
 
     def scan(self) -> List[TradeRecommendation]:
-        """扫描保护性Put机会"""
+        """Scan for protective put opportunities"""
         self._load_data()
         trades = []
 
@@ -1327,7 +1327,7 @@ class ProtectivePutStrategy(OptionsStrategy):
         return trades
 
     def calc_metrics(self, trade: TradeRecommendation) -> TradeRecommendation:
-        """计算保护性Put指标"""
+        """Compute protective put metrics"""
         prem = trade.premium
         qty = trade.quantity
         S = trade.underlying_price
@@ -1354,11 +1354,11 @@ class ProtectivePutStrategy(OptionsStrategy):
 # =====================================================================
 
 class GammaScalpingStrategy(OptionsStrategy):
-    """Gamma剥头皮策略 — 买入ATM跨式 + 频繁delta对冲收割gamma
+    """Gamma scalping strategy — buy ATM straddles and harvest gamma with frequent delta hedging
 
-    原理: 买ATM跨式获得正gamma, 股价每次波动时delta对冲锁定利润
-    适用: 高gamma标的 + 预期已实现波动率 > 隐含波动率
-    对冲频率: 每日或更频繁 (当delta偏移超过阈值)
+    Rationale: a long ATM straddle is long gamma; each price swing lets delta hedging lock in profit
+    Suited to: high-gamma instruments where realized volatility is expected to exceed implied volatility
+    Hedge frequency: daily or more often (whenever delta drifts beyond a threshold)
     """
 
     name = "Gamma剥头皮策略"
@@ -1370,7 +1370,7 @@ class GammaScalpingStrategy(OptionsStrategy):
     min_gamma: float = 0.02  # 最小gamma要求
 
     def scan(self) -> List[TradeRecommendation]:
-        """扫描高gamma机会"""
+        """Scan for high-gamma opportunities"""
         self._load_data()
         trades = []
 
@@ -1465,7 +1465,7 @@ class GammaScalpingStrategy(OptionsStrategy):
         return trades
 
     def calc_metrics(self, trade: TradeRecommendation) -> TradeRecommendation:
-        """计算gamma剥头皮指标"""
+        """Compute gamma scalping metrics"""
         prem = trade.premium
         S = trade.underlying_price
         gamma = trade.greeks.get('gamma', 0)
@@ -1504,13 +1504,13 @@ class GammaScalpingStrategy(OptionsStrategy):
 # =====================================================================
 
 class OptionsPortfolioManager:
-    """期权组合管理器 — 汇总多策略的Greeks/仓位/P&L
+    """Options portfolio manager — aggregates Greeks/positions/P&L across strategies
 
-    功能:
-        - 组合多策略交易建议
-        - 跟踪组合总Greeks (delta/gamma/theta/vega)
-        - 仓位限制 (单一标的 <= 5%, 期权总仓位 <= 20%)
-        - P&L场景分析 (标的价格 +/-5%, +/-10%, IV +/-10pp)
+    Features:
+        - Combines trade recommendations from multiple strategies
+        - Tracks total portfolio Greeks (delta/gamma/theta/vega)
+        - Position limits (single instrument <= 5%, total options exposure <= 20%)
+        - P&L scenario analysis (underlying +/-5%, +/-10%, IV +/-10pp)
     """
 
     def __init__(self, portfolio_value: float = 100_000):
@@ -1528,11 +1528,11 @@ class OptionsPortfolioManager:
         self.max_options_pct: float = 0.20      # 期权总仓位最大20%
 
     def add_strategy(self, strategy: OptionsStrategy):
-        """添加策略"""
+        """Add a strategy"""
         self.strategies.append(strategy)
 
     def scan_all(self) -> List[TradeRecommendation]:
-        """扫描所有策略并合并结果"""
+        """Scan every strategy and merge the results"""
         all_trades = []
         for strat in self.strategies:
             try:
@@ -1585,7 +1585,7 @@ class OptionsPortfolioManager:
         return filtered
 
     def portfolio_greeks(self) -> Dict[str, float]:
-        """汇总组合总Greeks"""
+        """Aggregate total portfolio Greeks"""
         total = {'delta': 0.0, 'gamma': 0.0, 'theta': 0.0, 'vega': 0.0}
         for t in self.trades:
             g = t.greeks
@@ -1594,12 +1594,12 @@ class OptionsPortfolioManager:
         return total
 
     def pnl_scenarios(self) -> pd.DataFrame:
-        """P&L场景分析 — 标的价格变动 +/-5%, +/-10% 以及 IV变动 +/-10pp
+        """P&L scenario analysis — underlying moves of +/-5%, +/-10% and IV moves of +/-10pp
 
         Returns
         -------
         pd.DataFrame
-            场景矩阵, 行=场景, 列=P&L
+            Scenario matrix, rows = scenarios, columns = P&L
         """
         scenarios = []
         price_shocks = [-0.10, -0.05, 0.0, 0.05, 0.10]
@@ -1638,7 +1638,7 @@ class OptionsPortfolioManager:
         return pd.DataFrame(scenarios)
 
     def summary(self) -> str:
-        """生成组合摘要文本"""
+        """Generate the portfolio summary text"""
         if not self.trades:
             return "无交易建议"
 
@@ -1684,21 +1684,26 @@ class OptionsPortfolioManager:
 
 def run_options_scan(loader, symbols: Optional[List[str]] = None,
                      portfolio_value: float = 100_000) -> pd.DataFrame:
-    """扫描所有期权策略, 按预估Sharpe排序并打印摘要
+    """Scan every options strategy, rank by estimated Sharpe, and print a summary
 
     Parameters
     ----------
     loader : AlpacaDataLoader
-        Alpaca数据加载器
+        Alpaca data loader
     symbols : list, optional
-        标的列表, 默认主要科技股+指数ETF
+        Instrument list, defaults to major tech names + index ETFs
     portfolio_value : float
-        组合价值, 默认$100,000
+        Portfolio value, defaults to $100,000
 
     Returns
     -------
     pd.DataFrame
-        所有交易建议, 按Sharpe降序排列
+        All trade recommendations, sorted by Sharpe descending. Column keys
+        are the literal strings used in the code, most of them Chinese:
+        '策略' (strategy), '标的' (underlying), '操作' (action),
+        '行权价' (strike), 'DTE', '权利金' (premium),
+        '预期年化' (expected annualized return), '盈利概率' (probability of
+        profit), '最大亏损' (max loss), 'Sharpe', 'Delta', 'Theta'.
     """
     if symbols is None:
         symbols = ['AAPL', 'NVDA', 'TSLA', 'SPY', 'MSFT', 'AMZN',

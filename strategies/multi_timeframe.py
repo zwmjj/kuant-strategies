@@ -1,12 +1,12 @@
-"""多时间框架策略 — 日线+周线+月线多维度Alpha组合
+"""Multi-timeframe strategies — daily + weekly + monthly multi-horizon alpha blends
 
-核心思想：不同时间尺度捕获不同的Alpha来源
-- 日线：微观结构、短期反转、成交量异动
-- 周线：中期动量、均值回归
-- 月线：长期趋势、质量因子、价值因子
+Core idea: different time scales capture different sources of alpha
+- Daily: microstructure, short-term reversal, volume anomalies
+- Weekly: medium-term momentum, mean reversion
+- Monthly: long-term trend, quality factors, value factors
 
-通过多时间框架叠加，策略在趋势方向上寻找最佳入场点，
-同时利用低相关性实现子策略间的分散化。
+By stacking timeframes, the strategies look for the best entry point along the prevailing
+trend while exploiting low correlation to diversify across sub-strategies.
 """
 
 import numpy as np
@@ -49,17 +49,18 @@ def _safe_div(a, b, fill=0.0):
 # ═══════════════════════════════════════════════════════════════════
 
 class TimeframeStackStrategy(BaseStrategy):
-    """多时间框架叠加策略 — 月线趋势+周线反转+日线量能三重共振
+    """Multi-timeframe stacking strategy — monthly trend + weekly reversal + daily volume, a triple confirmation
 
-    原理：
-    - 月线信号（60日动量）：判断中长期趋势方向，只做顺势交易
-    - 周线信号（10日反转）：在趋势方向内寻找短期超买/超卖的入场点
-    - 日线信号（成交量异动）：用量能放大来确认买卖信号的有效性
+    Rationale:
+    - Monthly signal (60-day momentum): sets the medium/long-term trend direction; trade with the trend only
+    - Weekly signal (10-day reversal): finds short-term overbought/oversold entries within that trend
+    - Daily signal (volume anomaly): uses volume expansion to confirm that a buy or sell signal is valid
 
-    逻辑：
-    只在月线趋势为多头时买入周线超卖反弹标的，且需日线放量确认。
+    Logic:
+    Buy weekly-oversold instruments only while the monthly trend is bullish, and only with daily
+    volume confirmation.
     signal = monthly_momentum * weekly_reversal * volume_confirmation
-    每周再平衡（5个交易日）。
+    Rebalanced weekly (every 5 trading days).
     """
     name = "Timeframe Stack"
     description = "月线趋势+周线反转+日线量能三重共振，周频再平衡"
@@ -71,18 +72,18 @@ class TimeframeStackStrategy(BaseStrategy):
     rebalance_days: int = 5     # 再平衡频率
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成三重时间框架叠加信号
+        """Generate the triple-timeframe stacked signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close'（收盘价）, 'volume'（成交量）；
-            值为 DataFrame (date x symbol)
+            Must contain 'close' (closing price) and 'volume' (traded volume);
+            values are DataFrames (date x symbol)
 
         Returns
         -------
         pd.DataFrame
-            复合信号 (date x symbol)，值域约 [-1, 1]
+            Composite signal (date x symbol), roughly in [-1, 1]
         """
         close = data['close']
         volume = data['volume']
@@ -120,16 +121,17 @@ class TimeframeStackStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class AdaptiveTimeframeStrategy(BaseStrategy):
-    """自适应时间框架策略 — 根据市场状态动态切换趋势/反转模式
+    """Adaptive timeframe strategy — switches between trend and reversal modes with the market state
 
-    原理：
-    - 趋势市（ADX代理 > 阈值）：使用20日和60日动量信号
-    - 震荡市（ADX代理 < 阈值）：使用5日和10日反转信号
-    - ADX代理 = |20日收益率| / 20日波动率（简化版方向性指标）
+    Rationale:
+    - Trending market (ADX proxy > threshold): use the 20-day and 60-day momentum signals
+    - Range-bound market (ADX proxy < threshold): use the 5-day and 10-day reversal signals
+    - ADX proxy = |20-day return| / 20-day volatility (simplified directional indicator)
 
-    文献依据：
-    趋势跟踪在高波动趋势市表现好，均值回归在低波动震荡市表现好。
-    两类策略天然负相关，自适应切换可以提高胜率。
+    Literature:
+    Trend following works well in high-volatility trending markets, mean reversion in
+    low-volatility range-bound markets. The two are naturally negatively correlated, so
+    adaptive switching raises the hit rate.
     """
     name = "Adaptive Timeframe"
     description = "趋势市用动量、震荡市用反转，ADX代理自适应切换"
@@ -143,17 +145,17 @@ class AdaptiveTimeframeStrategy(BaseStrategy):
     rev_long: int = 10
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成自适应信号 — 根据市场状态选择因子
+        """Generate the adaptive signal — the factor set follows the market state
 
         Parameters
         ----------
         data : dict
-            必须包含 'close'
+            Must contain 'close'
 
         Returns
         -------
         pd.DataFrame
-            自适应信号 (date x symbol)
+            Adaptive signal (date x symbol)
         """
         close = data['close']
 
@@ -192,15 +194,15 @@ class AdaptiveTimeframeStrategy(BaseStrategy):
 SECTOR_ETFS = ['XLE', 'XLF', 'XLK', 'XLV', 'XLI', 'XLC', 'XLU', 'XLRE', 'XLB', 'XLP', 'XLY']
 
 class SectorRotationStrategy(BaseStrategy):
-    """行业轮动策略 — 动量选行业+反转选个股
+    """Sector rotation strategy — momentum picks the sectors, reversal picks the stocks
 
-    原理：
-    - 行业层面：20日动量截面排名，做多前3名行业，做空后2名
-    - 个股层面：在优选行业内用5日反转选股（板块内超卖反弹）
-    - 理论依据：行业动量效应（Moskowitz & Grinblatt 1999）
-      行业间存在显著动量，但行业内个股更倾向短期反转
+    Rationale:
+    - Sector level: cross-sectional ranking on 20-day momentum; long the top 3 sectors, short the bottom 2
+    - Stock level: within the preferred sectors, select names on 5-day reversal (oversold bounces inside the sector)
+    - Basis: the industry momentum effect (Moskowitz & Grinblatt 1999)
+      Momentum is significant across sectors, while stocks within a sector tend to revert in the short run
 
-    使用行业ETF：XLE, XLF, XLK, XLV, XLI, XLC, XLU, XLRE, XLB, XLP, XLY
+    Uses sector ETFs: XLE, XLF, XLK, XLV, XLI, XLC, XLU, XLRE, XLB, XLP, XLY
     """
     name = "Sector Rotation"
     description = "20日动量选行业(多前3空后2)+5日反转选个股"
@@ -211,17 +213,17 @@ class SectorRotationStrategy(BaseStrategy):
     short_sectors: int = 2
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成行业轮动+个股选择的复合信号
+        """Generate the composite sector-rotation plus stock-selection signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close'；columns中应包含行业ETF和个股代码
+            Must contain 'close'; columns should include both sector ETFs and stock tickers
 
         Returns
         -------
         pd.DataFrame
-            复合信号 (date x symbol)
+            Composite signal (date x symbol)
         """
         close = data['close']
         all_symbols = close.columns.tolist()
@@ -277,16 +279,16 @@ class SectorRotationStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class PairsReversionStrategy(BaseStrategy):
-    """配对交易策略 — 高相关性股票对的价差均值回归
+    """Pairs trading strategy — spread mean reversion on highly correlated stock pairs
 
-    原理：
-    - 在投资宇宙中寻找高相关性股票对（60日滚动相关系数）
-    - 计算价差（对数价格比）的z-score
-    - z > 2：做空超涨股、做多滞涨股（价差收敛）
-    - z < -2：反向操作
-    - 理论依据：Gatev, Goetzmann & Rouwenhorst (2006)
+    Rationale:
+    - Search the universe for highly correlated pairs (60-day rolling correlation)
+    - Compute the z-score of the spread (log price ratio)
+    - z > 2: short the outperformer and long the laggard (the spread converges)
+    - z < -2: the reverse
+    - Basis: Gatev, Goetzmann & Rouwenhorst (2006)
 
-    选取相关性最高的5对，每日再平衡。
+    Takes the 5 most correlated pairs, rebalanced daily.
     """
     name = "Pairs Reversion"
     description = "高相关性股票对价差z-score均值回归，前5对日频再平衡"
@@ -298,17 +300,17 @@ class PairsReversionStrategy(BaseStrategy):
     top_pairs: int = 5          # 选取的配对数
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成配对交易信号
+        """Generate the pairs trading signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close'
+            Must contain 'close'
 
         Returns
         -------
         pd.DataFrame
-            配对信号 (date x symbol)，多头>0，空头<0
+            Pairs signal (date x symbol); longs > 0, shorts < 0
         """
         close = data['close']
         log_close = np.log(close.replace(0, np.nan))
@@ -376,16 +378,16 @@ class PairsReversionStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class EventMomentumStrategy(BaseStrategy):
-    """事件驱动漂移策略 — 捕获大幅异动后的价格漂移
+    """Event-driven drift strategy — captures the price drift that follows large moves
 
-    原理：
-    - 检测"事件日"：单日涨跌幅>3% 且 成交量>2倍均量
-    - 正面事件后：持有5天（盈利公告后漂移效应，PEAD）
-    - 负面事件后：回避/做空10天（负面漂移更慢更持久）
-    - 文献依据：Ball & Brown (1968), Bernard & Thomas (1989)
-      盈利公告后漂移（PEAD）是最稳健的市场异象之一
+    Rationale:
+    - Detect "event days": a single-day move > 3% together with volume > 2x the average
+    - After a positive event: hold for 5 days (post-earnings-announcement drift, PEAD)
+    - After a negative event: avoid or short for 10 days (negative drift is slower and more persistent)
+    - Literature: Ball & Brown (1968), Bernard & Thomas (1989)
+      Post-earnings-announcement drift (PEAD) is one of the most robust market anomalies
 
-    事件检测每日运行，持仓自动衰减。
+    Event detection runs daily; positions decay automatically.
     """
     name = "Event Momentum"
     description = "大幅异动(>3%且放量)后的价格漂移效应，PEAD启发"
@@ -397,17 +399,17 @@ class EventMomentumStrategy(BaseStrategy):
     neg_hold_days: int = 10         # 负面事件回避天数
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成事件驱动漂移信号
+        """Generate the event-driven drift signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'volume'
+            Must contain 'close', 'volume'
 
         Returns
         -------
         pd.DataFrame
-            事件信号 (date x symbol)
+            Event signal (date x symbol)
         """
         close = data['close']
         volume = data['volume']
@@ -448,15 +450,15 @@ class EventMomentumStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class SeasonalStrategy(BaseStrategy):
-    """季节性效应策略 — 月份效应+周内效应+月末月初效应
+    """Seasonality strategy — month-of-year, day-of-week and turn-of-month effects
 
-    原理：
-    - 月份效应："Sell in May"（5-10月减仓），圣诞行情（11-1月加仓）
-    - 周内效应：周一偏弱（周末信息消化），周五偏强（周末前平仓需求）
-    - 月末月初效应：每月最后3天+最初3天更强（薪资流入、基金调仓）
-    - 文献依据：Lakonishok & Smidt (1988), Kamstra et al. (2003)
+    Rationale:
+    - Month effect: "Sell in May" (cut exposure May-October), Santa Claus rally (add November-January)
+    - Day-of-week effect: Mondays are weak (weekend news digestion), Fridays strong (pre-weekend closing demand)
+    - Turn-of-month effect: the last 3 and first 3 days of a month are stronger (payroll inflows, fund rebalancing)
+    - Literature: Lakonishok & Smidt (1988), Kamstra et al. (2003)
 
-    叠加动量因子做确认，避免纯日历策略的衰减风险。
+    A momentum factor is overlaid as confirmation to limit the decay risk of a pure calendar strategy.
     """
     name = "Seasonal"
     description = "月份+周内+月末月初季节性效应叠加动量确认"
@@ -485,17 +487,17 @@ class SeasonalStrategy(BaseStrategy):
     }
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成季节性复合信号
+        """Generate the composite seasonality signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close'
+            Must contain 'close'
 
         Returns
         -------
         pd.DataFrame
-            季节性信号 (date x symbol)
+            Seasonality signal (date x symbol)
         """
         close = data['close']
         dates = close.index
@@ -550,16 +552,16 @@ class SeasonalStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class RiskParityDailyStrategy(BaseStrategy):
-    """风险平价策略 — 按波动率倒数分配权重，目标组合波动率10%
+    """Risk parity strategy — inverse-volatility weights targeting 10% portfolio volatility
 
-    原理：
-    - 传统等权重组合：高波动股票主导组合风险
-    - 风险平价：每只股票贡献相等的风险（按波动率倒数加权）
-    - 当波动率估计变化>20%时触发再平衡
-    - 目标组合年化波动率 = 10%
-    - 文献依据：Qian (2005), Maillard et al. (2010)
+    Rationale:
+    - Equal-weight portfolio: high-volatility names dominate portfolio risk
+    - Risk parity: every name contributes the same risk (inverse-volatility weighting)
+    - A rebalance is triggered when the volatility estimate changes by more than 20%
+    - Target annualized portfolio volatility = 10%
+    - Literature: Qian (2005), Maillard et al. (2010)
 
-    生成的信号代表权重分配（而非多空方向）。
+    The generated signals represent weight allocations rather than long/short direction.
     """
     name = "Risk Parity Daily"
     description = "波动率倒数加权，目标10%年化波动率，周频再平衡"
@@ -570,17 +572,17 @@ class RiskParityDailyStrategy(BaseStrategy):
     annualize_factor: float = 252 ** 0.5
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成风险平价权重信号
+        """Generate the risk parity weight signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close'
+            Must contain 'close'
 
         Returns
         -------
         pd.DataFrame
-            权重信号 (date x symbol)，值域 [0, 1]
+            Weight signal (date x symbol), in [0, 1]
         """
         close = data['close']
         returns = close.pct_change(1)
@@ -634,18 +636,18 @@ class RiskParityDailyStrategy(BaseStrategy):
 # ═══════════════════════════════════════════════════════════════════
 
 class CombinedAlphaStrategy(BaseStrategy):
-    """终极综合策略 — 四大子策略等权组合，利用低相关性分散化
+    """Combined alpha strategy — equal-weight blend of four sub-strategies, diversified by low correlation
 
-    组合方式：
-    - 25% TimeframeStack（趋势+反转+量能）
-    - 25% Adaptive（趋势/反转自适应切换）
-    - 25% EventMomentum（事件驱动漂移）
-    - 25% RiskParity（风险平价权重）
+    Composition:
+    - 25% TimeframeStack (trend + reversal + volume)
+    - 25% Adaptive (adaptive trend/reversal switching)
+    - 25% EventMomentum (event-driven drift)
+    - 25% RiskParity (risk parity weights)
 
-    原理：
-    子策略之间天然低相关（趋势 vs 反转 vs 事件 vs 风险管理），
-    等权组合后信号更稳定，回撤更小，夏普比率更高。
-    类似基金中的基金(FoF)思路。
+    Rationale:
+    The sub-strategies are naturally lowly correlated (trend vs reversal vs event vs risk
+    management), so the equal-weight blend produces steadier signals, smaller drawdowns and a
+    higher Sharpe ratio. Similar to a fund-of-funds (FoF) approach.
     """
     name = "Combined Alpha"
     description = "四大子策略等权组合(趋势叠加+自适应+事件+风险平价)"
@@ -664,17 +666,17 @@ class CombinedAlphaStrategy(BaseStrategy):
         }
 
     def generate_signal(self, data: dict) -> pd.DataFrame:
-        """生成综合Alpha信号
+        """Generate the combined alpha signal
 
         Parameters
         ----------
         data : dict
-            必须包含 'close', 'volume'
+            Must contain 'close', 'volume'
 
         Returns
         -------
         pd.DataFrame
-            综合信号 (date x symbol)
+            Combined signal (date x symbol)
         """
         sig_stack = self._sub_strategies['stack'].generate_signal(data)
         sig_adaptive = self._sub_strategies['adaptive'].generate_signal(data)
@@ -828,23 +830,23 @@ def run_all_multi_timeframe_backtests(
     end: str = '2025-12-31',
     universe: list = None,
 ) -> pd.DataFrame:
-    """运行所有多时间框架策略的回测
+    """Run backtests for every multi-timeframe strategy
 
-    下载数据，实例化8个策略，逐一回测，输出汇总表格。
+    Downloads the data, instantiates the 8 strategies, backtests each one and prints a summary table.
 
     Parameters
     ----------
     start : str
-        回测起始日期 (YYYY-MM-DD)
+        Backtest start date (YYYY-MM-DD)
     end : str
-        回测结束日期 (YYYY-MM-DD)
+        Backtest end date (YYYY-MM-DD)
     universe : list, optional
-        股票宇宙，默认使用50只大盘股+11只行业ETF
+        Instrument universe; defaults to 50 large-cap stocks plus 11 sector ETFs
 
     Returns
     -------
     pd.DataFrame
-        策略绩效汇总表
+        Strategy performance summary table
     """
     if universe is None:
         universe = DEFAULT_UNIVERSE + SECTOR_ETFS
